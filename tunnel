@@ -78,6 +78,11 @@ aws ecs list-tasks --cluster [クラスタ名]
 aws ecs describe-tasks --cluster [クラスタ名] --tasks [タスクID]
 ------------------------------------------
 
+RDSのデータベースインスタンス名を取得
+------------------------------------------
+aws rds describe-db-instances --query 'DBInstances[*].DBInstanceIdentifier'
+------------------------------------------
+
 ④ローカルPC(Mac OS)で次を実行する
 ------------------------------------------
 $ tunnel [クラスタ名] [タスクID] [コンテナID]
