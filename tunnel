@@ -1,0 +1,88 @@
+■SSMセッションマネージャーから「リモートホストへのポートフォワード機能」
+具体的には、セッションマネージャーによるポートフォワード完了後、ローカルPCのターミナルからプライベートサブネットにあるRDS等に直接ログイン出来る
+リモートホストのポートフォワード対応済みのバージョンがFargate内に入っているため、ECSを立ち上げた後に以下のようなコマンドでポートフォワードが可能になっています。
+
+事前準備
+------------------------------------------
+・踏み台サーバーのSSMエージェントのバージョンを3.1.1476.0以上にする(Fargate内にデフォルトで入っている)
+
+・ローカルPCにAWS CLIをインストールと認証設定を行う
+　https://docs.aws.amazon.com/ja_jp/cli/latest/userguide/getting-started-install.html
+
+・ローカルPCにSession Managerプラグインをインストールする
+　https://docs.aws.amazon.com/ja_jp/systems-manager/latest/userguide/install-plugin-macos-overview.html
+------------------------------------------
+
+①ローカルPC(Mac OS)の任意の場所に次を配置する
+
+init.sh
+------------------------------------------
+#!/bin/sh
+set -eu
+
+cd `dirname $0`
+
+ln -s $(pwd)/tunnel.sh /usr/local/bin/tunnel
+chmod 755 /usr/local/bin/tunnel
+------------------------------------------
+
+tunnel.sh
+------------------------------------------
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $0 <CLUSTER> <TASK_ID> <CONTAINER_ID>"
+    exit 1
+fi
+
+CLUSTER="$1"
+TASK_ID="$2"
+CONTAINER_ID="$3"
+
+DB_HOST="(db host)"
+LOCAL_DB_PORT="13306"
+REMOTE_DB_PORT="3306"
+
+TARGET="ecs:${CLUSTER}_${TASK_ID}_${CONTAINER_ID}"
+
+PARAMETERS="{\"host\":[\"${DB_HOST}\"],\"portNumber\":[\"${REMOTE_DB_PORT}\"], \"localPortNumber\":[\"${LOCAL_DB_PORT}\"]}"
+
+aws ssm start-session \
+    --target ${TARGET} \
+    --document-name AWS-StartPortForwardingSessionToRemoteHost \
+    --parameters "${PARAMETERS}"
+------------------------------------------
+
+②次を実行する
+------------------------------------------
+$ init.sh
+------------------------------------------
+
+③AWS CLIを使用して、Mac OSからECS on Fargateのクラスタ名、タスクID、およびコンテナIDを取得する
+
+ステップ1：クラスタのリストを取得する
+------------------------------------------
+aws ecs list-clusters
+------------------------------------------
+
+ステップ2：特定のクラスタ内のタスクのリストを取得する
+※ [クラスタ名] は、ステップ1で特定したクラスタ名に置き換える
+------------------------------------------
+aws ecs list-tasks --cluster [クラスタ名]
+------------------------------------------
+
+ステップ3：特定のタスクの詳細を取得する
+※[タスクID] は、ステップ2で特定したタスクIDに置き換える
+------------------------------------------
+aws ecs describe-tasks --cluster [クラスタ名] --tasks [タスクID]
+------------------------------------------
+
+④ローカルPC(Mac OS)で次を実行する
+------------------------------------------
+$ tunnel [クラスタ名] [タスクID] [コンテナID]
+30分経つと接続が切れます。
+
+$ mysql -u goto -p -h127.0.0.1 -P13306 # localポートを13306にしてある
+Enter password: 
+------------------------------------------
