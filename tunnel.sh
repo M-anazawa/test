@@ -21,7 +21,8 @@ environments=("AdhYdxDev" "AdhYdxStg" "AdhYdxPrd" "AdhLdcrDev" "AdhLdcrStg" "Adh
 ENVIRONMENT_NAME="${environments[$((ENVIRONMENT_NUMBER - 1))]}"
 
 # AWS ECSクラスタのARNを取得
-CLUSTER_ARN=$(aws ecs list-clusters --region ap-northeast-1 --query "clusterArns[${ENVIRONMENT_NUMBER - 1}]" --output text)
+CLUSTER_ARNS=$(aws ecs list-clusters --region ap-northeast-1 --query "clusterArns" --output text)
+CLUSTER_ARN=$(echo "$CLUSTER_ARNS" | awk -F'\t' -v ENV_NUMBER="$ENVIRONMENT_NUMBER" '{print $ENV_NUMBER}')
 
 # AWS ECSタスクのARNを取得
 TASK_ARN=$(aws ecs list-tasks --region ap-northeast-1 --cluster "$CLUSTER_ARN" --query 'taskArns[0]' --output text)
@@ -46,8 +47,8 @@ do
 done
 
 # データベースポートの設定
-LOCAL_DB_PORT="13306"
-REMOTE_DB_PORT="3306"
+LOCAL_DB_PORT="15432"
+REMOTE_DB_PORT="5432"
 
 # ターゲットの設定
 TARGET="ecs:${CLUSTER_ARN}_${TASK_ARN}_${CONTAINER_ID}"
