@@ -40,7 +40,7 @@ RDS_ENDPOINTS=$(aws rds describe-db-instances --region ap-northeast-1 --query 'D
 DB_HOST=""
 for endpoint in $RDS_ENDPOINTS
 do
-  if [[ "$endpoint" == *"$ENVIRONMENT_NAME"* ]]; then
+  if [[ "$(echo "$endpoint" | tr '[:upper:]' '[:lower:]')" == *"${ENVIRONMENT_NAME,,}"* ]]; then
     DB_HOST="$endpoint"
     break
   fi
