@@ -22,10 +22,11 @@ ENVIRONMENT_NAME="${environments[$((ENVIRONMENT_NUMBER - 1))]}"
 
 # AWS ECSクラスタのARNを取得
 CLUSTER_ARNS=$(aws ecs list-clusters --region ap-northeast-1 --query "clusterArns" --output text)
-CLUSTER_ARN=$(echo "$CLUSTER_ARNS" | awk -F'\t' -v ENV_NUMBER="$ENVIRONMENT_NUMBER" '{print $ENV_NUMBER}')
+CLUSTER_ARN=$(echo "$CLUSTER_ARNS" | awk -F'/' -v ENV_NUMBER="$ENVIRONMENT_NUMBER" '{print $NF}' | cut -d '-' -f 2-)
 
 # AWS ECSタスクのARNを取得
 TASK_ARN=$(aws ecs list-tasks --region ap-northeast-1 --cluster "$CLUSTER_ARN" --query 'taskArns[0]' --output text)
+TASK_ARN=$(echo "$TASK_ARN" | awk -F'/' '{print $NF}')
 
 # コンテナ名に含まれる文字列を指定
 CONTAINER_NAME_PATTERN="Webapp"
