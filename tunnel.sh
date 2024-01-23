@@ -22,7 +22,8 @@ ENVIRONMENT_NAME="${environments[$((ENVIRONMENT_NUMBER - 1))]}"
 
 # AWS ECSクラスタのARNを取得
 CLUSTER_ARNS=$(aws ecs list-clusters --region ap-northeast-1 --query "clusterArns" --output text)
-CLUSTER_ARN=$(echo "$CLUSTER_ARNS" | awk -F'/' -v ENV_NUMBER="$ENVIRONMENT_NUMBER" '{print $NF}' | cut -d '-' -f 2-)
+CLUSTER_ARN=$(echo "$CLUSTER_ARNS" | awk -F'\t' -v ENV_NUMBER="$ENVIRONMENT_NUMBER" '{print $ENV_NUMBER}')
+CLUSTER_NAME=$(basename "$CLUSTER_ARN")
 
 # AWS ECSタスクのARNを取得
 TASK_ARN=$(aws ecs list-tasks --region ap-northeast-1 --cluster "$CLUSTER_ARN" --query 'taskArns[0]' --output text)
