@@ -36,11 +36,13 @@ CONTAINER_ID=$(aws ecs describe-tasks --region ap-northeast-1 --cluster "$CLUSTE
 # RDSエンドポイントの一覧を取得
 RDS_ENDPOINTS=$(aws rds describe-db-instances --region ap-northeast-1 --query 'DBInstances[*].[Endpoint.Address]' --output text)
 
-# 環境名に一致するRDSエンドポイントを抽出
+# 環境名に一致するRDSエンドポイントを抽出 (大文字と小文字を区別せず)
 DB_HOST=""
 for endpoint in $RDS_ENDPOINTS
 do
-  if [[ "$(echo "$endpoint" | tr '[:upper:]' '[:lower:]')" == *"${ENVIRONMENT_NAME,,}"* ]]; then
+  lowercase_endpoint=$(echo "$endpoint" | tr '[:upper:]' '[:lower:]')
+  lowercase_environment_name=$(echo "$ENVIRONMENT_NAME" | tr '[:upper:]' '[:lower:]')
+  if [[ "$lowercase_endpoint" == *"$lowercase_environment_name"* ]]; then
     DB_HOST="$endpoint"
     break
   fi
