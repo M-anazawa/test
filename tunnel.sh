@@ -1,18 +1,30 @@
 #!/bin/bash
 
-# 画面に環境リストを表示
-echo "1 - AdhYdxDev"
-echo "2 - AdhYdxStg"
-echo "3 - AdhYdxPrd"
-echo "4 - AdhLdcrDev"
-echo "5 - AdhLdcrStg"
-echo "6 - AdhLdcrPrd"
-echo "7 - AdhDcDev"
-echo "8 - AdhDcStg"
-echo "9 - AdhDcPrd"
+while true; do
+  # 画面に環境リストを表示
+  echo ""
+  echo "### 環境リスト ###"
+  echo "1 - AdhYdxDev"
+  echo "2 - AdhYdxStg"
+  echo "3 - AdhYdxPrd"
+  echo "4 - AdhLdcrDev"
+  echo "5 - AdhLdcrStg"
+  echo "6 - AdhLdcrPrd"
+  echo "7 - AdhDcDev"
+  echo "8 - AdhDcStg"
+  echo "9 - AdhDcPrd"
+  echo ""
 
-# ユーザーから環境番号の入力を受け取る
-read -p "環境番号を入力してください: " ENVIRONMENT_NUMBER
+  # ユーザーから環境番号の入力を受け取る
+  read -p "作業対象の環境を環境リストから選択してください: " ENVIRONMENT_NUMBER
+
+  # 環境番号が1から9の範囲でない場合、再度入力を促す
+  if ! [[ "$ENVIRONMENT_NUMBER" =~ ^[1-9]$ ]]; then
+    echo "環境リスト番号を入力してください。"
+  else
+    break
+  fi
+done
 
 # 環境名のリスト
 environments=("AdhYdxDev" "AdhYdxStg" "AdhYdxPrd" "AdhLdcrDev" "AdhLdcrStg" "AdhLdcrPrd" "AdhDcDev" "AdhDcStg" "AdhDcPrd")
