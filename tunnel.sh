@@ -22,7 +22,13 @@ LOGFILE="script_log.txt"
     echo "9 - AdhDcPrd"
     echo ""
 
-    read -p "作業対象の環境を環境リストから選択してください: " ENVIRONMENT_NUMBER
+    read -p "作業対象の環境を環境リストから選択してください (1-9の番号を入力、終了するには Ctrl+C): " ENVIRONMENT_NUMBER
+
+    # ユーザーがCtrl+Cでスクリプトを終了できるようにする
+    if [ -z "$ENVIRONMENT_NUMBER" ]; then
+      echo "スクリプトを終了します。"
+      exit 0
+    fi
 
     # 環境番号が1から9の範囲でない場合、再度入力を促す
     if [[ "$ENVIRONMENT_NUMBER" =~ ^[1-9]$ ]]; then
