@@ -36,9 +36,19 @@ LOGFILE="script_log.txt"
   # 入力された番号に対応する環境名を取得
   ENVIRONMENT_NAME="${environments[$((ENVIRONMENT_NUMBER - 1))]}"
 
-  # AWS ECSクラスタのARNを取得
+    # AWS ECSクラスタのARNを取得
   CLUSTER_ARNS=$(aws ecs list-clusters --region ap-northeast-1 --query "clusterArns" --output text)
-  CLUSTER_ARN=$(echo "$CLUSTER_ARNS" | awk -F'\t' -v ENV_NUMBER="$ENVIRONMENT_NUMBER" '{print $ENV_NUMBER}')
+
+  # 環境名に一致するクラスタのARNを取得
+  CLUSTER_ARN=""
+  for ((i=0; i<${#environments[@]}; i++))
+  do
+    if [[ "${environments[$i]}" == "$ENVIRONMENT_NAME" ]]; then
+      CLUSTER_ARN=$(echo "$CLUSTER_ARNS" | awk -F'\t' '{print $'$((i+1))'}')
+      break
+    fi
+  done
+
   CLUSTER_NAME=$(basename "$CLUSTER_ARN")
 
   # AWS ECSタスクのARNを取得
