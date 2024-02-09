@@ -1,0 +1,263 @@
+■AWS認証情報のセットアップ
+GitHub Secretsの設定: AWSのAWS_ACCESS_KEY_IDとAWS_SECRET_ACCESS_KEYをGitHubのリポジトリのSecretsに安全に保存します。
+これにより、ワークフローがAWSリソースにアクセスするための認証情報を保持します。
+最小権限の原則の適用: 使用するIAMユーザーには、必要最小限の権限を付与します。
+S3へのファイルアップロードおよび削除の権限のみを持つポリシーをIAMユーザーにアタッチします。
+---------------------------
+    // S3アクセス用のポリシー定義
+    const s3Policy = new iam.Policy(this, 'GitHubActionsS3AccessPolicy', {
+      policyName: 'GitHubActions-S3-Access',
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            's3:PutObject',
+            's3:DeleteObject'
+          ],
+          resources: [
+            'arn:aws:s3:::バケット名/*', // デプロイ対象のS3バケットARN
+            'arn:aws:s3:::バケット名' // バケット自体へのアクセス権限
+          ]
+        })
+      ]
+    });
+
+    // IAMユーザーの作成
+    const user = new iam.User(this, 'GitHubActionsUser', {
+      userName: 'new-GitHub-Actions'
+    });
+
+    // ポリシーをユーザーにアタッチ
+    user.attachInlinePolicy(s3Policy); // 追加したS3アクセスポリシーをアタッチ
+  }
+}
+---------------------------
+
+■S3バケットの準備
+バケットの作成: デプロイ先となるAmazon S3バケットを事前に作成しておく必要があります。
+バケットポリシーの設定: S3バケットに対する適切なアクセスポリシーを設定します。
+public-readアクセスを許可する場合は、ポリシーで公開アクセスを許可するようにしますが、セキュリティ上の理由から通常は限定的なアクセスを推奨します。
+
+■GitHub Actionsワークフローの配置
+ワークフローファイルの名前は任意ですが、その内容が何をするものかを表す明確な名前をつけることが推奨されます（例：build.yml、deploy.yml、test_on_push.ymlなど）
+ワークフローファイルは、リポジトリの.github/workflowsディレクトリ内に配置する必要があります。
+このディレクトリが存在しない場合は、新しく作成します。
+.github/workflowsディレクトリはリポジトリのルートにあり、複数のワークフローファイルをこのディレクトリ内に置くことができます。
+これにより、異なる目的やトリガーに基づいた複数のワークフローをリポジトリに設定することが可能です。
+---------------------------
+name: Deploy to S3 with Merge
+
+on:
+  pull_request:
+    branches:
+      - AaaDev
+      - BbbDev
+      - CccDev
+    types: [closed]
+
+jobs:
+  deploy-AaaDev:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'AaaDev'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Install nvm and Node.js using .nvmrc
+      run: |
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+        echo 'export NVM_DIR="$HOME/.nvm"' >> $HOME/.bashrc
+        echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $HOME/.bashrc
+        source $HOME/.bashrc
+        nvm install
+        nvm use
+    
+    - name: Install yarn
+      run: npm install -g yarn
+    
+    - name: Install nx
+      run: npm install --global nx@latest
+    
+    - name: Install project dependencies
+      run: yarn install
+    
+    - name: Build
+      run: |
+        echo "module.exports = { envADH: 'adh-development-ydx-us01'}" > packages/config/preferences.personal.js
+        yarn nx build-adh-development-ydx
+
+    - name: Deploy to S3 for AaaDev
+      uses: jakejarvis/s3-sync-action@v0.5.1
+      with:
+        args: --acl public-read --follow-symlinks --delete
+        bucket: バケット名
+        source_dir: 'build/dist-adh'
+      env:
+        AWS_REGION: "ap-northeast-1"
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  # BbbDevとCccDevのための追加のジョブをここに定義...
+---------------------------
+
+[詳細説明]
+=================================
+---------------------------
+このコードスニペットは、GitHub Actionsのワークフロー定義の一部です。
+GitHub Actionsは、GitHubリポジトリ内で自動化されたプロセス（CI/CDパイプラインなど）を作成するための機能です。
+この特定のワークフローは「Deploy to S3 with Merge」と名付けられており、GitHub上でプルリクエストがマージされた際に特定のアクションを実行することを目的としています。
+以下、各セクションの詳細な説明です：
+
+name: Deploy to S3 with Merge
+この行はワークフローの名前を定義しています。この名前はGitHubのUI上でワークフローを識別するために使用されます。
+
+on:
+このセクションは、ワークフローがトリガーされるイベントを指定します。
+
+pull_request:
+ワークフローはプルリクエストイベントによってトリガーされることを意味します。
+
+branches:
+プルリクエストがこれらのブランチ（AaaDev、BbbDev、CccDev）にマージされた場合にのみ、ワークフローがトリガーされます。
+
+types: [closed]
+ワークフローは、プルリクエストが「閉じられた（closed）」タイプのイベントである場合にのみトリガーされます。
+これは、プルリクエストがマージされた時も含まれますが、単に閉じられただけの場合も含まれるため、追加の条件を設定してマージされたケースのみを対象とします。
+
+jobs:
+ワークフロー内で実行されるジョブを定義します。
+
+deploy-AaaDev:
+この部分で定義されているのは「deploy-AaaDev」という名前のジョブです。
+この名前は任意で、ワークフロー内でジョブを識別するために使用されます。
+
+if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'AaaDev'
+この条件は、ジョブが実行されるべき条件を指定しています。
+具体的には、プルリクエストがマージされた（github.event.pull_request.merged == true）かつ
+そのプルリクエストがAaaDevブランチに対して行われた（github.event.pull_request.base.ref == 'AaaDev'）場合にのみ、ジョブを実行するようにしています。
+
+runs-on: ubuntu-latest
+このジョブは、最新のUbuntuランナー上で実行されることを指定しています。
+GitHub Actionsは複数の仮想環境（Ubuntu、Windows、macOS）を提供しており、この設定によりジョブがどの環境で実行されるかを定義します。
+
+steps:
+- uses: actions/checkout@v2
+stepsセクションの一部であり、特定のステップで使用されています。
+ここでは、actions/checkout@v2というアクションを使用しています。
+このアクションはGitHub Actionsのワークフローにおいて非常に一般的で、以下の目的で使われます：
+このアクションは、GitHub上のリポジトリのコードをチェックアウト（つまり、ダウンロードまたは複製）し、ワークフローが実行されているGitHub Actionsランナーの作業ディレクトリに配置します。
+これにより、その後のステップでリポジトリ内のコードに対して様々な操作（ビルド、テスト、デプロイなど）を実行できるようになります。
+@v2はこのアクションのバージョンを指定しており、GitHub Actionsの安定版を使用しています。
+バージョン2はパフォーマンスの改善、新機能の追加、バグ修正などが行われています。
+---------------------------
+---------------------------
+このコードスニペットは、GitHub Actionsの実行環境でNode Version Manager（nvm）をインストールし、設定して使用する一連のステップを示しています。
+それぞれのコマンドの意味は以下の通りです：
+
+nvmのインストール
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+nvmがGitHub Actionsの実行環境にインストールされます。
+これにより、異なるバージョンのNode.jsをインストールして切り替えることができるようになります。
+
+環境変数の設定
+echo 'export NVM_DIR="$HOME/.nvm"' >> $HOME/.bashrc
+このコマンドは、NVM_DIR環境変数を設定し、その値をユーザーのホームディレクトリにある.nvmディレクトリとして~/.bashrcファイルに追記します。
+NVM_DIRはnvmがインストールされているディレクトリを指し、nvmのスクリプトがこの変数を使用します。
+
+ nvmの初期化スクリプトを.bashrcに追加
+echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $HOME/.bashrc
+このコマンドは、$NVM_DIR/nvm.shスクリプトが存在し読み込み可能であれば、それをソースすることでnvmを初期化するコードを~/.bashrcに追加します。
+これにより、シェルセッションが開始されるたびにnvmが利用可能になります。
+nvm.shは、Node Version Manager（nvm）をインストールする際に自動的に作成されるスクリプトです。
+nvmをインストールすると、このスクリプトは$HOME/.nvmディレクトリ内に配置されます。
+したがって、nvm.shを事前に手動で準備する必要はありません。
+
+.bashrcの変更を現在のシェルセッションに適用
+source $HOME/.bashrc
+sourceコマンドは、指定されたファイル（この場合は~/.bashrc）内のコマンドを現在のシェルセッションで実行します。
+これにより、上記で追加した環境変数とnvmの初期化コマンドが有効になり、直ちにnvmコマンドを使用できるようになります。
+
+nvmを使用してNode.jsをインストールし、使用する
+nvm install
+nvm use
+nvm installコマンドを実行すると、nvmは現在のディレクトリまたはその親ディレクトリ内に.nvmrcファイルが存在するかを確認します。
+ファイルが存在すれば、その中のバージョン番号に基づいてNode.jsをインストールします。
+nvm useコマンドも同様に、.nvmrcに記載されたバージョンのNode.jsを現在のシェルセッションで使用するように切り替えます。
+---------------------------
+---------------------------
+これらのステップは、ソフトウェアの依存関係のインストールとプロジェクトのビルドプロセスを自動化するために設計されています。
+各ステップの具体的な内容と目的は以下の通りです：
+
+Yarnのインストール
+- name: Install yarn
+  run: npm install -g yarn
+目的: Yarnは、JavaScriptプロジェクトの依存関係を管理するためのパッケージマネージャーです。このステップでは、npm（Node.jsのパッケージマネージャー）を使用して、Yarnをグローバルにインストールしています。
+利点: Yarnは依存関係のインストールを高速に行い、一貫性のあるロックファイルを提供します。これにより、異なる環境間での依存関係の一貫性が保証されます。
+
+Nxのインストール
+- name: Install nx
+  run: npm install --global nx@latest
+目的: Nxは、モノレポ（単一のリポジトリ内で複数のプロジェクトを管理するアプローチ）を効率的に管理するためのツールセットです。このステップでは、npmを使用してNx CLIをグローバルにインストールしています。
+利点: Nxは、大規模なアプリケーションの開発においてコードの再利用、ビルド最適化、依存関係の管理を容易にします。
+
+プロジェクト依存関係のインストール
+- name: Install project dependencies
+  run: yarn install
+目的: このステップでは、yarn installコマンドを使用してプロジェクトの依存関係をインストールします。これは、package.jsonとyarn.lockファイルに基づいて行われます。
+利点: 依存関係が正確にかつ迅速にインストールされ、開発者間やCI/CDパイプラインでの一貫性が保証されます。
+
+プロジェクトのビルド
+- name: Build
+  run: |
+    echo "module.exports = { envADH: 'adh-development-ydx-us01'}" > packages/config/preferences.personal.js
+    yarn nx build-adh-development-ydx
+目的: まず、特定の環境設定をpreferences.personal.jsファイルに書き込みます。次に、yarn nxコマンドを使用して、build-adh-development-ydxという特定のNxプロジェクトまたはアプリケーションをビルドします。
+利点: 環境固有の設定を動的に生成し、プロジェクトのビルドプロセスを自動化します。これにより、ビルドされたアーティファクトが特定の環境（この場合はadh-development-ydx）に対応するようになります。
+---------------------------
+---------------------------
+このコードスニペットは、GitHub Actionsのワークフローの一部で、
+jakejarvis/s3-sync-action@v0.5.1というアクションを使用して、
+ビルドされたアプリケーションをAmazon S3バケットに同期（デプロイ）するためのものです。
+各パラメータの意味は以下の通りです：
+
+- name: Deploy to S3 for AaaDev
+この行は、GitHub Actionsのワークフロー内でのこのステップの名前を指定しています。
+ここでは、「Deploy to S3 for AaaDev」という名前をつけていますが、これは単に識別のためのラベルであり、実際の操作には影響しません。
+
+uses: jakejarvis/s3-sync-action@v0.5.1
+この行は、GitHub Actionsワークフローで外部アクションを使用することを指定しています。
+jakejarvis/s3-sync-action@v0.5.1は、AWSのS3バケットにファイルを同期するためのアクションです。
+@v0.5.1は、このアクションの特定のバージョンを指しており、安定した動作を保証するためにバージョンを指定して使用することが推奨されます。
+
+with:
+このセクションでは、s3-sync-actionに渡されるパラメータを定義します。
+
+args: --acl public-read --follow-symlinks --delete
+--acl public-read: アップロードされるファイルのアクセス制御リスト（ACL）をpublic-readに設定し、ファイルが公開され、誰でも読み取り可能になることを意味します。
+--aclオプションで指定できる値は、Amazon S3のアクセス制御リスト（ACL）ポリシーに基づきます。
+これらのACLポリシーは、S3上のオブジェクトに対するアクセス権を細かく制御するために使用されます。
+public-readはその中の一つで、オブジェクトを公開して誰でも読み取り可能にします。
+public-read以外に指定できる主なACLオプションは以下の通りです：
+・private: オブジェクトが完全にプライベートであり、オブジェクト所有者のみがアクセスできます。
+・public-read: オブジェクトを公開し、誰でもオブジェクトを読み取ることができますが、書き込みは許可されません。
+・public-read-write: オブジェクトを公開し、誰でもオブジェクトの読み取りと書き込みができます（非推奨であり、セキュリティ上のリスクがあるため使用は推奨されません）。
+・authenticated-read: 認証されたAWSアカウントのユーザーのみがオブジェクトを読み取ることができます。
+・aws-exec-read: AWSのサービスとして実行されるコード（例: EC2インスタンス上のアプリケーション）がオブジェクトを読み取ることができます。
+・bucket-owner-read: オブジェクトをアップロードしたユーザーとバケットの所有者のみがオブジェクトを読み取ることができます。
+・bucket-owner-full-control: オブジェクトをアップロードしたユーザーとバケットの所有者のみがフルコントロール（読み取り、書き込み、削除等）を持ちます。
+--follow-symlinks: シンボリックリンクをたどり、リンク先のファイルを同期します。
+--delete: S3バケット内で、ソースディレクトリに存在しないファイルを削除します。これにより、バケットの内容がソースディレクトリの内容と完全に一致するようになります。
+
+bucket: バケット名
+このパラメータは、ファイルが同期されるAmazon S3バケットの名前を指定します。
+ここでは's3-bucket-for-AaaDev'が使用されていますが、実際のS3バケット名に置き換える必要があります。
+
+source_dir: 'build/dist-adh'
+このパラメータは、GitHub Actionsが実行されている環境内の、S3に同期したいファイルが含まれているディレクトリのパスを指定します。
+この例では、'build/dist-adh'ディレクトリが指定されており、このディレクトリ内のファイルとフォルダがS3バケットに同期されます。
+---------------------------
+=================================
+
+
+
+
+
