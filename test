@@ -1,0 +1,51 @@
+name: Deploy to S3 with Merge
+
+on:
+  pull_request:
+    branches:
+      - AaaDev
+      - BbbDev
+      - CccDev
+    types: [closed]
+
+jobs:
+  deploy-AaaDev:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'AaaDev'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install nvm and Node.js using .nvmrc
+      run: |
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+        echo 'export NVM_DIR="$HOME/.nvm"' >> $GITHUB_ENV
+        echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $GITHUB_ENV
+        echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> $GITHUB_ENV
+        . "$NVM_DIR/nvm.sh"
+        nvm install
+        nvm use
+ 
+    - name: Install yarn
+      run: npm install -g yarn
+    
+    - name: Install nx
+      run: npm install --global nx@latest
+    
+    - name: Install project dependencies
+      run: yarn install
+    
+    - name: Build
+      run: |
+        echo "module.exports = { envADH: 'adh-development-ydx-us01'}" > packages/config/preferences.personal.js
+        yarn nx build build-adh-development-ydx
+
+    - name: Deploy to S3 for AaaDev
+      uses: jakejarvis/s3-sync-action@v0.5.1
+      with:
+        args: --follow-symlinks --delete
+        bucket: バケット名
+        source_dir: 'dist-adh'
+      env:
+        AWS_REGION: "ap-northeast-1"
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
