@@ -17,14 +17,12 @@ jobs:
 
     - name: Install nvm and Node.js using .nvmrc
       run: |
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-        echo 'export NVM_DIR="$HOME/.nvm"' >> $GITHUB_ENV
-        echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> $GITHUB_ENV
-        echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> $GITHUB_ENV
-        . "$NVM_DIR/nvm.sh"
-        nvm install
-        nvm use
- 
+      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+      echo 'export NVM_DIR="$HOME/.nvm"' >> $GITHUB_ENV
+      source $NVM_DIR/nvm.sh
+      nvm install
+      nvm use
+
     - name: Install yarn
       run: npm install -g yarn
     
