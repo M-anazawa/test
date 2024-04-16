@@ -1,205 +1,279 @@
-name: Deploy to S3 with Merge
+######
+事前準備
+######
 
-on:
-  pull_request:
-    branches:
-      - AaaDev
-      - BbbDev
-      - CccDev
-    types: [closed]
+・AWS CLIでAWSのパラメータストアにアクセス出来るようにする
 
-jobs:
-  deploy-AaaDev:
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'AaaDev'
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
+・クライアントPC(Mac OS)のターミナル(bash)で次を実施する
 
-    - name: Install nvm and Node.js
-      run: |
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-        echo "NVM_DIR=$HOME/.nvm" >> $GITHUB_ENV
-        echo "PATH=$PATH:$HOME/.nvm" >> $GITHUB_ENV
+　①Homebrew(brew)がインストールされていない場合はインストールする
+　------------------------------------------------
+　次を参照してインストールする
+　https://brew.sh/ja/
+　------------------------------------------------
 
-    - name: Setup Node.js version
-      run: |
-        . "$NVM_DIR/nvm.sh"
-        nvm install
-        nvm use
+　②pyenvをインストールする
+　------------------------------------------------
+　$ brew install pyenv
+   $ pyenv -v
+　[表示例]
+　pyenv 2.4.0
+　------------------------------------------------
 
-    - name: Install yarn
-      run: npm install -g yarn
+　③pyenvの設定を行う
+　------------------------------------------------
+　$ echo 'export PYENV_ROOT="$HOME/.pyenv'' >> ~/.zshrc
+　$ echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/zshrc
+　$ echo 'eval "$(pyenv init -)"' >> ~/.zshrc
+　$ source ~/.zshrc
+　------------------------------------------------
+
+　④Pythonをインストールする
+　------------------------------------------------
+　$ pyenv install 3.12.2
+　$ pyenv versions
+　[表示例]
+　* system (set by /Users/masatsune.anazawa/.pyenv/version)
+　  3.12.2
+　------------------------------------------------
+
+　⑤Pythonスクリプト実行に必要なモジュールをインストールする
+　------------------------------------------------
+　$ pip3 install boto3 openpyxl
+　------------------------------------------------
+
+　⑥paramフォルダを任意の場所に配置する
+
+　⑦カレントディレクトリをparamフォルダに変更する
+　------------------------------------------------
+　$ cd /[paramフォルダを配置したディレクトリ]/param
+　------------------------------------------------
+
+　⑧setup-param.shに実行権限を付与する
+　------------------------------------------------
+　$ chmod +x setup-param.sh
+　------------------------------------------------
+
+　⑨setup-param.shを実行し、param.pyへのシンボリックリンクを作成する
+　------------------------------------------------
+　$  ./setup-param.sh
+　------------------------------------------------
+
+################
+パラメータストア更新方法
+################
+
+クライアントPC（Mac OS）のターミナル（bash）で次を実施する
+
+①paramコマンドを実行する
+------------------------------------------------
+$ param
+------------------------------------------------
+
+②次が表示されたら、アクセスしたい環境の番号を入力し、Enterを押す
+------------------------------------------------
+### 環境リスト ###
+1 - YDX_開発環境
+2 - YDX_検証環境
+3 - YDX_本番環境
+4 - LDCR_開発環境
+5 - LDCR_検証環境
+6 - LDCR_本番環境
+7 - TD_開発環境
+8 - TD_検証環境
+9 - TD_本番環境
+
+作業対象の環境を環境リストから選択してください (1-9の番号を入力、終了するにはEnterまたはCtrl+C): 1
+------------------------------------------------
+
+③次が表示されたら、パラメータストアの新規設定・更新・削除を行う
+　設定を行わない場合は、noを入力する
+
+　<新規設定の例>
+　「/ydx/dev/webapp/env/database_username」を値「postgress」で新規設定しますか？(yes/no): yes
+　/ydx/dev/webapp/env/database_username を新規設定しました。
+
+　<更新の例>
+　「/ydx/dev/webapp/env/database_username」の値を「postgress」に変更しますか？(yes/no): yes
+　/ydx/dev/webapp/env/database_username を更新しました。
+
+　<削除の例>
+　「/ydx/dev/webapp/env/database_username」を削除しますか？(yes/no): yes
+　/ydx/dev/webapp/env/database_username を削除しました。
+
+④最後に、パラメータストア管理ファイルとパラメータストアの比較結果が表示されます。意図しない設定状態の場合は再度設定を行う
+
+　<差分が無い場合の表示例>
+　[パラメータストア管理ファイルとパラメータストアの比較結果]
+　パラメータストア管理ファイルとパラメータストアに差分はありません。
+
+　<差分がある場合の表示例1>
+　[パラメータストア管理ファイルとパラメータストアの比較結果]
+　- 「/ydx/dev/webapp/env/database_username」がパラメータストアに設定されていません。
+
+　<差分がある場合の表示例2>
+　[パラメータストア管理ファイルとパラメータストアの比較結果]
+　- 「/ydx/dev/webapp/env/database_username」の値が異なります。
+　  パラメータストア設定値「postgress」、パラメータストア管理ファイル「postgress-test」
+
+　<差分がある場合の表示例3>
+　[パラメータストア管理ファイルとパラメータストアの比較結果]
+　- 「/ydx/dev/webapp/env/database_username」が削除されていません。
+
+setup-param.sh
+---
+#!/bin/bash
+set -eu
+
+# 'param.py' スクリプトの絶対ディレクトリを取得
+DIR=$(dirname "$(readlink -f "$0")")
+
+# 既にシンボリックリンクが存在するかチェック
+if [ -e /usr/local/bin/param ]; then
+    read -p "/usr/local/bin/paramは既に存在します。上書きしますか？ (y/n): " answer
+    case $answer in
+        [Yy]* ) ;;
+        * ) echo "中止します"; exit 1;;
+    esac
+fi
+
+# 'param.py' へのシンボリックリンクを /usr/local/bin に作成
+ln -sf "${DIR}/param.py" /usr/local/bin/param
+
+# 'param.py' に実行権限を付与
+chmod +x "${DIR}/param.py"
+
+echo "param.py スクリプトへのパスが設定され、実行権限が付与されました。"
+---
+
+
+
+
+param.py
+---
+#!/usr/bin/env python3
+
+# プログラムをクリーンに終了させるため
+import sys
+
+# AWSサービスをPythonから利用するためのAWS SDKであるBoto3をインポート
+import boto3
+
+# Excelファイルを読み込んだり編集したりするためのPythonライブラリであるopenpyxlからload_workbook関数をインポート
+from openpyxl import load_workbook
+
+# AWS SSMクライアント作成
+ssm_client = boto3.client('ssm')
+
+# 環境選択
+def select_environment():
+    environment_list = [
+        "YDX_開発環境", "YDX_検証環境", "YDX_本番環境",
+        "LDCR_開発環境", "LDCR_検証環境", "LDCR_本番環境",
+        "TD_開発環境", "TD_検証環境", "TD_本番環境"
+    ]
+    print("### 環境リスト ###")
+    for i, env in enumerate(environment_list, 1):
+        print(f"{i} - {env}")
+    while True:
+        try:
+            selected = input("\n作業対象の環境を環境リストから選択してください (1-9の番号を入力、終了するにはEnterまたはCtrl+C): ")
+            if selected.strip() == "":
+                sys.exit("プログラムを終了します。")
+            selected = int(selected)
+            if 1 <= selected <= 9:
+                return environment_list[selected - 1]
+            else:
+                print("入力が正しくありません。1から9の番号を入力してください。")
+        except ValueError:
+            print("有効な数字を入力してください。")
+        except KeyboardInterrupt:
+            sys.exit("プログラムを終了します。")
+
+# Excelファイルからパラメータ読み込み
+def read_parameters_from_excel(sheet_name):
+    file_name = '環境変数一覧.xlsx'
+    wb = load_workbook(filename=file_name, data_only=True)
+    ws = wb[sheet_name]
+    parameters = {}
+    for row in ws.iter_rows(min_row=3):
+        name = row[5].value  # F列
+        value = row[3].value  # D列
+        delete_flag = row[6].value  # G列
+        if name and 'database_password' not in name:
+            parameters[name] = (value, delete_flag == 'delete')
+    return parameters
+
+# yes/no入力処理
+def ask_yes_no(question):
+    response = None
+    while response not in ['yes', 'no']:
+        response = input(question).lower()
+        if response not in ['yes', 'no']:
+            print("入力が無効です。'yes' または 'no' で答えてください。")
+    return response == 'yes'
+
+# パラメータストア更新
+def sync_parameters(parameters):
+    for name, (value, is_delete) in parameters.items():
+        try:
+            current_value = ssm_client.get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
+        except ssm_client.exceptions.ParameterNotFound:
+            current_value = None
+
+        if is_delete:
+            if current_value and ask_yes_no(f"「{name}」を削除しますか？(yes/no): "):
+                ssm_client.delete_parameter(Name=name)
+                print(f"{name} を削除しました。")
+        elif current_value is None:
+            if ask_yes_no(f"「{name}」を値「{value}」で新規設定しますか？(yes/no): "):
+                ssm_client.put_parameter(Name=name, Value=value, Type='String', Overwrite=False)
+                print(f"{name} を新規設定しました。")
+        elif current_value != value:
+            if ask_yes_no(f"「{name}」の値を「{value}」に変更しますか？(yes/no): "):
+                ssm_client.put_parameter(Name=name, Value=value, Type='String', Overwrite=True)
+                print(f"{name} を更新しました。")
+
+# パラメータストア管理ファイルとパラメータストアの比較
+def compare_and_report_differences(parameters):
+    print("\n[パラメータストア管理ファイルとパラメータストアの比較結果]")
+    ssm_params = {}
+    for name, (excel_value, is_delete) in parameters.items():
+        try:
+            # パラメータを取得し、辞書に追加
+            ssm_value = ssm_client.get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
+            ssm_params[name] = ssm_value
+        except ssm_client.exceptions.ParameterNotFound:
+            # パラメータが見つからない場合、Noneを割り当てる
+            ssm_params[name] = None
     
-    - name: Install nx
-      run: npm install --global nx@latest
-    
-    - name: Install project dependencies
-      run: yarn install
-    
-    - name: Build
-      run: |
-        echo "module.exports = { envADH: 'adh-development-ydx-us01'}" > packages/config/preferences.personal.js
-        yarn nx build build-adh-development-ydx
+    differences_found = False
+    for name, (excel_value, is_delete) in parameters.items():
+        ssm_value = ssm_params.get(name, None)
+        if is_delete:
+            if ssm_value is not None:
+                print(f"- 「{name}」が削除されていません。")
+                differences_found = True
+        elif ssm_value is None:
+            print(f"- 「{name}」がパラメータストアに設定されていません。")
+            differences_found = True
+        elif ssm_value != excel_value:
+            print(f"- 「{name}」の値が異なります。")
+            print(f"  パラメータストア設定値「{ssm_value}」、パラメータストア管理ファイル「{excel_value}」")
+            differences_found = True
 
-    - name: Deploy to S3 for AaaDev
-      uses: jakejarvis/s3-sync-action@v0.5.1
+    if not differences_found:
+        print("パラメータストア管理ファイルとパラメータストアに差分はありません。")
 
-      with:
-        args: --follow-symlinks --delete
-      env:
-        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET_AaaDev }}
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_REGION: 'ap-northeast-1'
-        SOURCE_DIR:  'dist'
+# メイン関数
+def main():
+    sheet_name = select_environment()
+    parameters = read_parameters_from_excel(sheet_name)
+    sync_parameters(parameters)
+    compare_and_report_differences(parameters)
 
-[詳細説明]
-=================================
----------------------------
-このコードスニペットは、GitHub Actionsのワークフロー定義の一部です。
-GitHub Actionsは、GitHubリポジトリ内で自動化されたプロセス（CI/CDパイプラインなど）を作成するための機能です。
-この特定のワークフローは「Deploy to S3 with Merge」と名付けられており、GitHub上でプルリクエストがマージされた際に特定のアクションを実行することを目的としています。
-以下、各セクションの詳細な説明です：
+if __name__ == "__main__":
+    main()
+---
 
-name: Deploy to S3 with Merge
-この行はワークフローの名前を定義しています。この名前はGitHubのUI上でワークフローを識別するために使用されます。
 
-on:
-このセクションは、ワークフローがトリガーされるイベントを指定します。
-
-pull_request:
-ワークフローはプルリクエストイベントによってトリガーされることを意味します。
-
-branches:
-プルリクエストがこれらのブランチ（AaaDev、BbbDev、CccDev）にマージされた場合にのみ、ワークフローがトリガーされます。
-
-types: [closed]
-ワークフローは、プルリクエストが「閉じられた（closed）」タイプのイベントである場合にのみトリガーされます。
-これは、プルリクエストがマージされた時も含まれますが、単に閉じられただけの場合も含まれるため、追加の条件を設定してマージされたケースのみを対象とします。
-
-jobs:
-ワークフロー内で実行されるジョブを定義します。
-
-deploy-AaaDev:
-この部分で定義されているのは「deploy-AaaDev」という名前のジョブです。
-この名前は任意で、ワークフロー内でジョブを識別するために使用されます。
-
-if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'AaaDev'
-この条件は、ジョブが実行されるべき条件を指定しています。
-具体的には、プルリクエストがマージされた（github.event.pull_request.merged == true）かつ
-そのプルリクエストがAaaDevブランチに対して行われた（github.event.pull_request.base.ref == 'AaaDev'）場合にのみ、ジョブを実行するようにしています。
-
-runs-on: ubuntu-latest
-このジョブは、最新のUbuntuランナー上で実行されることを指定しています。
-GitHub Actionsは複数の仮想環境（Ubuntu、Windows、macOS）を提供しており、この設定によりジョブがどの環境で実行されるかを定義します。
-
-steps:
-- uses: actions/checkout@v2
-stepsセクションの一部であり、特定のステップで使用されています。
-ここでは、actions/checkout@v2というアクションを使用しています。
-このアクションはGitHub Actionsのワークフローにおいて非常に一般的で、以下の目的で使われます：
-このアクションは、GitHub上のリポジトリのコードをチェックアウト（つまり、ダウンロードまたは複製）し、ワークフローが実行されているGitHub Actionsランナーの作業ディレクトリに配置します。
-これにより、その後のステップでリポジトリ内のコードに対して様々な操作（ビルド、テスト、デプロイなど）を実行できるようになります。
-@v2はこのアクションのバージョンを指定しており、GitHub Actionsの安定版を使用しています。
-バージョン2はパフォーマンスの改善、新機能の追加、バグ修正などが行われています。
----------------------------
----------------------------
-このコードスニペットは、GitHub Actionsの実行環境でNode Version Manager（nvm）をインストールし、設定して使用する一連のステップを示しています。
-それぞれのコマンドの意味は以下の通りです：
-
-nvmのインストール
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-このコマンドは、NVM のインストールスクリプトをダウンロードして実行します。
-ここで curl は、URL からコンテンツを取得するためのコマンドラインツールです。
-curlによってダウンロードされたインストールスクリプトがbashによって実行されます
-このスクリプトは、ユーザーのホームディレクトリ内に .nvm ディレクトリを作成し、そこに NVM をインストールします。
-これにより、異なるバージョンのNode.jsをインストールして切り替えることができるようになります。
-
-echo "NVM_DIR=$HOME/.nvm" >> $GITHUB_ENV
-これにより、NVM のインストールディレクトリを環境変数 NVM_DIR に設定し、GitHub Actions の環境変数として保存します。
-$GITHUB_ENV は、ワークフローの実行中に環境変数を設定するために使用される特別なファイルです。
-
-echo "PATH=$PATH:$HOME/.nvm" >> $GITHUB_ENV
-NVM のパスをシステムの PATH 環境変数に追加し、後続のステップで NVM コマンドが使用できるようにします。
-
-- name: Install Node.js
-  run: |
-    . "$NVM_DIR/nvm.sh"
-これは、NVM スクリプトをソースするコマンドです。ソース化することで、NVM の機能が現在のシェルセッションで利用可能になります
-nvm.shは、Node Version Manager（nvm）をインストールする際に自動的に作成されるスクリプトです。
-nvmをインストールすると、このスクリプトは$HOME/.nvmディレクトリ内に配置されます。
-したがって、nvm.shを事前に手動で準備する必要はありません。
-
-.bashrcの変更を現在のシェルセッションに適用
-source $HOME/.bashrc
-sourceコマンドは、指定されたファイル（この場合は~/.bashrc）内のコマンドを現在のシェルセッションで実行します。
-これにより、上記で追加した環境変数とnvmの初期化コマンドが有効になり、直ちにnvmコマンドを使用できるようになります。
-
-nvmを使用してNode.jsをインストールし、使用する
-nvm install
-nvm use
-nvm installコマンドを実行すると、nvmは現在のディレクトリまたはその親ディレクトリ内に.nvmrcファイルが存在するかを確認します。
-ファイルが存在すれば、その中のバージョン番号に基づいてNode.jsをインストールします。
-nvm useコマンドも同様に、.nvmrcに記載されたバージョンのNode.jsを現在のシェルセッションで使用するように切り替えます。
----------------------------
----------------------------
-これらのステップは、ソフトウェアの依存関係のインストールとプロジェクトのビルドプロセスを自動化するために設計されています。
-各ステップの具体的な内容と目的は以下の通りです：
-
-Yarnのインストール
-- name: Install yarn
-  run: npm install -g yarn
-目的: Yarnは、JavaScriptプロジェクトの依存関係を管理するためのパッケージマネージャーです。このステップでは、npm（Node.jsのパッケージマネージャー）を使用して、Yarnをグローバルにインストールしています。
-利点: Yarnは依存関係のインストールを高速に行い、一貫性のあるロックファイルを提供します。これにより、異なる環境間での依存関係の一貫性が保証されます。
-
-Nxのインストール
-- name: Install nx
-  run: npm install --global nx@latest
-目的: Nxは、モノレポ（単一のリポジトリ内で複数のプロジェクトを管理するアプローチ）を効率的に管理するためのツールセットです。このステップでは、npmを使用してNx CLIをグローバルにインストールしています。
-利点: Nxは、大規模なアプリケーションの開発においてコードの再利用、ビルド最適化、依存関係の管理を容易にします。
-
-プロジェクト依存関係のインストール
-- name: Install project dependencies
-  run: yarn install
-目的: このステップでは、yarn installコマンドを使用してプロジェクトの依存関係をインストールします。これは、package.jsonとyarn.lockファイルに基づいて行われます。
-利点: 依存関係が正確にかつ迅速にインストールされ、開発者間やCI/CDパイプラインでの一貫性が保証されます。
-
-プロジェクトのビルド
-- name: Build
-  run: |
-    echo "module.exports = { envADH: 'adh-development-ydx-us01'}" > packages/config/preferences.personal.js
-    yarn nx build-adh-development-ydx
-目的: まず、特定の環境設定をpreferences.personal.jsファイルに書き込みます。次に、yarn nxコマンドを使用して、build-adh-development-ydxという特定のNxプロジェクトまたはアプリケーションをビルドします。
-利点: 環境固有の設定を動的に生成し、プロジェクトのビルドプロセスを自動化します。これにより、ビルドされたアーティファクトが特定の環境（この場合はadh-development-ydx）に対応するようになります。
----------------------------
----------------------------
-このコードスニペットは、GitHub Actionsのワークフローの一部で、
-jakejarvis/s3-sync-action@v0.5.1というアクションを使用して、
-ビルドされたアプリケーションをAmazon S3バケットに同期（デプロイ）するためのものです。
-各パラメータの意味は以下の通りです：
-
-- name: Deploy to S3 for AaaDev
-この行は、GitHub Actionsのワークフロー内でのこのステップの名前を指定しています。
-ここでは、「Deploy to S3 for AaaDev」という名前をつけていますが、これは単に識別のためのラベルであり、実際の操作には影響しません。
-
-uses: jakejarvis/s3-sync-action@v0.5.1
-この行は、GitHub Actionsワークフローで外部アクションを使用することを指定しています。
-jakejarvis/s3-sync-action@v0.5.1は、AWSのS3バケットにファイルを同期するためのアクションです。
-@v0.5.1は、このアクションの特定のバージョンを指しており、安定した動作を保証するためにバージョンを指定して使用することが推奨されます。
-
-with:
-このセクションでは、s3-sync-actionに渡されるパラメータを定義します。
-
-args: --acl public-read --follow-symlinks --delete
---follow-symlinks: シンボリックリンクをたどり、リンク先のファイルを同期します。
---delete: S3バケット内で、ソースディレクトリに存在しないファイルを削除します。これにより、バケットの内容がソースディレクトリの内容と完全に一致するようになります。
-
-bucket: バケット名
-このパラメータは、ファイルが同期されるAmazon S3バケットの名前を指定します。
-ここでは's3-bucket-for-AaaDev'が使用されていますが、実際のS3バケット名に置き換える必要があります。
-
-source_dir: 'build/dist-adh'
-このパラメータは、GitHub Actionsが実行されている環境内の、S3に同期したいファイルが含まれているディレクトリのパスを指定します。
-この例では、'build/dist-adh'ディレクトリが指定されており、このディレクトリ内のファイルとフォルダがS3バケットに同期されます。
----------------------------
-=================================
