@@ -276,4 +276,216 @@ if __name__ == "__main__":
     main()
 ---
 
+<説明>
+---
+# AWS SSMクライアント作成
+ssm_client = boto3.client('ssm', region_name='ap-northeast-1')
+boto3ライブラリを使用してAWS Systems Manager (SSM) のクライアントを作成しています。
+'ssm'は、このクライアントがAWS Systems Managerサービスとの通信を担うことを示しています。
+このクライアントを介して、プログラムはSSMに保存されているパラメータを読み取ったり、新しいパラメータを作成したり、既存のパラメータを更新または削除したりすることができます。
+プログラムは東京リージョンのSSMサービスに対して操作（パラメータの取得、設定、削除など）を行うことができます。
+
+# 環境選択
+def select_environment():
+ユーザーに複数の環境から選択するように促し、ユーザーの選択に応じて特定の環境名を返すための関数です
+
+    environment_list = [
+        "YDX_開発環境", "YDX_検証環境", "YDX_本番環境",
+        "LDCR_開発環境", "LDCR_検証環境", "LDCR_本番環境",
+        "TD_開発環境", "TD_検証環境", "TD_本番環境"
+    ]
+選択可能な環境の名前がリスト形式で保存されています
+
+    print("### 環境リスト ###")
+    for i, env in enumerate(environment_list, 1):
+        print(f"{i} - {env}")
+enumerate 関数を使い、リスト内の各環境を番号付きで表示します。
+enumerate は各要素に対してインデックス（この場合は1から始まる）と値を返します。
+
+    while True:
+        try:
+            selected = input("\n作業対象の環境を環境リストから選択してください (1-9の番号を入力、終了するにはEnterまたはCtrl+C): ")
+            if selected.strip() == "":
+                sys.exit("プログラムを終了します。")
+input 関数を使用してユーザーから入力を求めます。
+ユーザーは作業対象の環境に対応する番号を入力するよう求められます。
+入力が空（Enter キーのみを押す）または Ctrl+C（プログラムの中断）の場合は、プログラムが終了します。
+
+            selected = int(selected)
+            if 1 <= selected <= 9:
+                return environment_list[selected - 1]
+            else:
+                print("入力が正しくありません。1から9の番号を入力してください。")
+        except ValueError:
+            print("有効な数字を入力してください。")
+        except KeyboardInterrupt:
+            sys.exit("プログラムを終了します。")
+入力された値が1から9の範囲内かどうかを確認します。
+これは、定義された環境リストの範囲内であることを保証します。
+正しい入力の場合、選択された環境名を関数の呼び出し元に返します。
+不正な入力（範囲外の数値や数値以外の文字が入力された場合）や ValueError（数値への変換に失敗した場合）に対しては、
+エラーメッセージを表示して再度入力を求めます。
+
+# Excelファイルからパラメータ読み込み
+def read_parameters_from_excel(sheet_name):
+Excelファイルから特定のシートのデータを読み込み、特定の形式で情報を抽出し、それを辞書形式で返すための関数です
+
+    file_name = '環境変数一覧.xlsx'
+    wb = load_workbook(filename=file_name, data_only=True)
+load_workbook 関数を使用して、指定されたExcelファイル (環境変数一覧.xlsx) を開きます。
+data_only=True のオプションが設定されているため、数式ではなく、数式が計算された結果の値が読み込まれます。
+
+    ws = wb[sheet_name]
+引数 sheet_name に基づいて、ワークブック内の特定のシートを選択します。
+これにより、異なる環境設定が格納されているシートにアクセスできます。
+
+    parameters = {}
+抽出したデータは、名前をキーとし、値と削除フラグを含むタプルを値とする辞書 parameters に格納されます。
+
+    for row in ws.iter_rows(min_row=3):
+        name = row[5].value  # F列
+        value = row[3].value  # D列
+        delete_flag = row[6].value  # G列
+ws.iter_rows(min_row=3) を使用して、3行目から最後の行までの各行を繰り返し処理します。
+Excelのデータ構造に基づき、F列（row[5]）、D列（row[3]）、G列（row[6]）からそれぞれ名前、値、削除フラグを取得します。
+最終行の判断は、Excelシート内で値が存在する最後の行を基に自動的に行われます。
+つまり、データが存在する最後の行が処理の範囲となります。
+
+        if name and 'database_password' not in name:
+            parameters[name] = (value, delete_flag == 'delete')
+名前が存在し、かつ 'database_password' という文字列を含まない項目のみを抽出します。
+これにより、特定のセキュリティポリシーに従ってセンシティブな情報をフィルタリングします。
+delete_flag が 'delete' である場合、タプルに (value, True) を設定し、そうでなければ (value, False) を設定します。
+
+    return parameters
+最終的に、すべての適格なパラメータが格納された parameters 辞書が返されます
+
+# yes/no入力処理
+def ask_yes_no(question):
+特定の質問に対してユーザーから「yes」または「no」の回答を求めるための関数
+
+    response = None
+初期に response 変数を None に設定
+
+    while response not in ['yes', 'no']:
+ユーザーの入力が 'yes' または 'no' のいずれでもない場合、ループが続きます
+正しい入力（'yes' または 'no'）が得られると、ループから抜け出します
+
+        response = input(question).lower()
+        if response not in ['yes', 'no']:
+            print("入力が無効です。'yes' または 'no' で答えてください。")
+    return response == 'yes'
+ユーザーの入力が 'yes' の場合、True を返し、それ以外の場合は False を返します
+この真偽値は後続の処理で条件分岐に使用されます
+
+# パラメータストア更新
+def sync_parameters(parameters):
+与えられたパラメータの辞書に基づいて、AWSのParameter Storeに対する一連の操作（新規作成、更新、削除）を実行する関数
+
+    for name, (value, is_delete) in parameters.items():
+        try:
+            current_value = ssm_client.get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
+get_parameter メソッドを使って既存のパラメータ値を取得します
+
+        except ssm_client.exceptions.ParameterNotFound:
+            current_value = None
+もしパラメータが見つからなければ ParameterNotFound 例外が発生し、current_value は None に設定されます
+
+        if is_delete:
+            if current_value and ask_yes_no(f"「{name}」を削除しますか？(yes/no): "):
+                ssm_client.delete_parameter(Name=name)
+                print(f"{name} を削除しました。")
+もしパラメータが削除フラグが立っていて、かつ現在の値が存在する（current_value が None でない）場合、
+ask_yes_no 関数を呼び出してユーザーに削除確認を求めます。
+ユーザーが「yes」と答えた場合、delete_parameter メソッドを使用してパラメータを削除します
+
+        elif current_value is None:
+            if ask_yes_no(f"「{name}」を値「{value}」で新規設定しますか？(yes/no): "):
+                ssm_client.put_parameter(Name=name, Value=value, Type='String', Overwrite=False)
+                print(f"{name} を新規設定しました。")
+パラメータがSSMに存在しない場合（current_value が None）、ユーザーに新規作成の確認を求め、
+同意があれば put_parameter メソッドを使用して新規にパラメータを作成します
+
+        elif current_value != value:
+            if ask_yes_no(f"「{name}」の値を「{value}」に変更しますか？(yes/no): "):
+                ssm_client.put_parameter(Name=name, Value=value, Type='String', Overwrite=True)
+                print(f"{name} を更新しました。")
+既存のパラメータの値が現在の値と異なる場合、ユーザーに更新の確認を求め、同意があれば put_parameter を使用して値を更新します
+
+# パラメータストア管理ファイルとパラメータストアの比較
+def compare_and_report_differences(parameters):
+指定されたパラメータ管理ファイルとAWS Systems Manager Parameter Storeに登録されている実際のパラメータ値とを比較し、
+その差異を報告するための関数
+
+    print("\n[パラメータストア管理ファイルとパラメータストアの比較結果]")
+    ssm_params = {}
+    for name, (excel_value, is_delete) in parameters.items():
+関数はまず、渡されたパラメータリスト（parameters 辞書）をループ処理し、
+各パラメータ名に対応する値をAWS Systems Manager Parameter Storeから取得します
+
+        try:
+            # パラメータを取得し、辞書に追加
+            ssm_value = ssm_client.get_parameter(Name=name, WithDecryption=True)['Parameter']['Value']
+            ssm_params[name] = ssm_value
+get_parameter メソッドを使用してパラメータ値を取得し、取得できた場合はその値を ssm_params 辞書に保存します
+
+        except ssm_client.exceptions.ParameterNotFound:
+            # パラメータが見つからない場合、Noneを割り当てる
+            ssm_params[name] = None
+パラメータが存在しない場合は、例外 ParameterNotFound が発生し、対応するキーの値として None が ssm_params 辞書に設定されます
+    
+    differences_found = False
+    for name, (excel_value, is_delete) in parameters.items():
+        ssm_value = ssm_params.get(name, None)
+取得した ssm_params 辞書と元の parameters 辞書を比較します
+
+        if is_delete:
+            if ssm_value is not None:
+                print(f"- 「{name}」が削除されていません。")
+                differences_found = True
+削除フラグが立っているが削除されていない場合：is_delete が True で、Parameter Storeから取得した値が None でない場合、
+パラメータが削除されていないと報告します
+
+        elif ssm_value is None:
+            print(f"- 「{name}」がパラメータストアに設定されていません。")
+            differences_found = True
+パラメータストアに設定されていない場合：Parameter Storeから値が None で返された場合（未設定の場合）、
+パラメータが設定されていないと報告します
+
+        elif ssm_value != excel_value:
+            print(f"- 「{name}」の値が異なります。")
+            print(f"  パラメータストア設定値「{ssm_value}」、パラメータストア管理ファイル「{excel_value}」")
+            differences_found = True
+Parameter Storeから取得した値と管理ファイルの値が異なる場合、その差異を報告します。
+
+    if not differences_found:
+        print("パラメータストア管理ファイルとパラメータストアに差分はありません。")
+
+# メイン関数
+def main():
+他の関数を呼び出して、パラメータストアの管理と比較プロセスを統合的に実行するための制御関数
+
+    sheet_name = select_environment()
+この関数はユーザーに作業対象の環境を選択させ、選択された環境名（例えば "YDX_本番環境"）を返します。
+環境名はシート名としてExcelファイル内で使用されます
+
+    parameters = read_parameters_from_excel(sheet_name)
+選択された環境名（シート名）を引数として read_parameters_from_excel() 関数を呼び出します。
+この関数は、指定されたシートからパラメータの名前、値、削除フラグを読み取り、これらの情報を辞書形式で返します
+
+    sync_parameters(parameters)
+Excelファイルから読み取ったパラメータデータを引数として受け取り、
+AWS Systems Manager Parameter Storeに対して必要に応じてパラメータの更新、新規設定、または削除を行います。
+ユーザーは各アクションを行う前にyes/noで確認を求められます
+
+    compare_and_report_differences(parameters)
+Parameter Storeの現在のパラメータ設定と、Excelファイルに記録されたパラメータ設定とを比較します。
+この比較により、差異がある場合は具体的な差異内容が出力され、差異がない場合はその旨が報告されます
+
+if __name__ == "__main__":
+    main()
+この行は、スクリプトが直接実行された場合のみ True と評価されます。
+つまり、この条件はスクリプトがコマンドラインから直接起動された際にのみ成立します。
+main() は、スクリプトが直接実行された際に呼び出される関数です。
+---
 
