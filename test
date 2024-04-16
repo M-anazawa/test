@@ -162,7 +162,7 @@ import boto3
 # Excelファイルを読み込んだり編集したりするためのPythonライブラリであるopenpyxlからload_workbook関数をインポート
 from openpyxl import load_workbook
 
-# AWS SSMクライアントを東京リージョンで作成
+# AWS SSMクライアント作成
 ssm_client = boto3.client('ssm', region_name='ap-northeast-1')
 
 # 環境選択
