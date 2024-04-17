@@ -172,19 +172,20 @@ def select_environment():
         "LDCR_開発環境", "LDCR_検証環境", "LDCR_本番環境",
         "TD_開発環境", "TD_検証環境", "TD_本番環境"
     ]
+    max_environment_index = len(environment_list)  # リストの長さを取得
     print("### 環境リスト ###")
     for i, env in enumerate(environment_list, 1):
         print(f"{i} - {env}")
     while True:
         try:
-            selected = input("\n作業対象の環境を環境リストから選択してください (1-9の番号を入力、終了するにはEnterまたはCtrl+C): ")
+            selected = input(f"\n作業対象の環境を環境リストから選択してください (1-{max_environment_index}の番号を入力、終了するにはEnterまたはCtrl+C): ")
             if selected.strip() == "":
                 sys.exit("プログラムを終了します。")
             selected = int(selected)
-            if 1 <= selected <= 9:
+            if 1 <= selected <= max_environment_index:
                 return environment_list[selected - 1]
             else:
-                print("入力が正しくありません。1から9の番号を入力してください。")
+                print(f"入力が正しくありません。1から{max_environment_index}の番号を入力してください。")
         except ValueError:
             print("有効な数字を入力してください。")
         except KeyboardInterrupt:
