@@ -40,8 +40,8 @@ try:
                 read_time = (time.time() - read_start_time) * 1000  # ミリ秒単位で計測
 
                 # コンソールとログファイルへの出力
-                update_msg = f"[更新に費やした時間] write:{read_number}"
-                read_msg = f"[表示に費やした時間] read:{read_number}"
+                update_msg = f"[更新に費やした時間] write:{update_time:.2f}ms: {read_number}"
+                read_msg = f"[表示に費やした時間] read:{read_time:.2f}ms: {read_number}"
                 print(update_msg)
                 print(read_msg)
                 log_file.write(update_msg + '\n')
