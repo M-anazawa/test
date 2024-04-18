@@ -1,11 +1,14 @@
-pip install psycopg2-binary
-
 import psycopg2
 import time
 
-# 仮定としてデータベースに接続済みとされているため、カーソルオブジェクトの準備を行います。
-# 実際の環境に合わせてデータベース接続情報を設定する必要があります。
-conn = psycopg2.connect("dbname=development user=your_username password=your_password")
+# データベース接続情報を設定します。ローカルのフォワーディングポート15432を使用。
+conn = psycopg2.connect(
+    dbname="development",
+    user="your_username",
+    password="your_password",
+    host="localhost",  # ポートフォワーディングを使用するため、ホストはlocalhostに設定
+    port=15432         # ローカルのフォワーディングポート
+)
 cursor = conn.cursor()
 
 # ログファイル設定
