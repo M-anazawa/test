@@ -15,7 +15,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Ensure all history is fetched
-        token: ${{ secrets.PAT_TOKEN }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup environment
       run: |
@@ -29,10 +29,6 @@ jobs:
         ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
         git checkout -b $ROLLBACK_BRANCH
         git push origin $ROLLBACK_BRANCH
-      shell: bash -l {0}
-      env:
-        GIT_TRACE: 1
-        GIT_CURL_VERBOSE: 1
 
     - name: Prune old rollback branches
       run: |
