@@ -1,59 +1,54 @@
-name: Rollback Branch Management
+name: Clear Branch History
 
 on:
-  pull_request:
-    types: [closed]
-    branches:
-      - AaaPrdWebapp
-      - BbbPrdWebapp
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'The branch to clear history'
+        required: true
+        type: choice
+        options:
+          - AaaPrdWebapp
+          - BbbPrdWebapp
 
 jobs:
-  manage-rollback:
-    if: github.event.pull_request.merged == true
+  clear-history:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Ensure all history is fetched
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Setup environment
+    - name: Check if branch is allowed to be cleared
       run: |
-        echo "MERGE_TIME=$(date +'%y%m%d%H%M')" >> $GITHUB_ENV
+        TARGET_BRANCH=${{ github.event.inputs.target_branch }}
+        ALLOWED_BRANCHES=("AaaPrdWebapp" "BbbPrdWebapp")
 
-    - name: Create and push rollback branch
-      env:
-        MERGE_TIME: ${{ env.MERGE_TIME }}
-      run: |
-        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-        ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
-        git checkout -b $ROLLBACK_BRANCH
-        git push origin $ROLLBACK_BRANCH
+        if [[ ! " ${ALLOWED_BRANCHES[@]} " =~ " ${TARGET_BRANCH} " ]]; then
+          echo "Branch ${TARGET_BRANCH} is not allowed to be cleared."
+          exit 1
+        fi
 
-    - name: Prune old rollback branches
+    - name: Clear history
       run: |
-        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-        git fetch --prune
-        OLD_BRANCHES=$(git branch -r --sort=committerdate | grep "$BASE_BRANCH"Rollback | head -n -5)
-        for BRANCH in $OLD_BRANCHES; do
-          git push origin --delete ${BRANCH#origin/}
-        done
+        TARGET_BRANCH=${{ github.event.inputs.target_branch }}
 
-    - name: Clear commit history for target branch
-      run: |
-        TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
-        
         # Checkout an orphan branch (no parents)
         git checkout --orphan temp-branch
-        
+
         # Remove all files
         git rm -rf .
-        
+
         # Create an empty commit
         git commit --allow-empty -m "Clearing branch history"
-        
+
+        # Delete the target branch
+        git push origin --delete $TARGET_BRANCH
+
+        # Rename the temporary branch to the target branch
+        git branch -m $TARGET_BRANCH
+
         # Force push the new branch to origin
-        git push --force origin temp-branch:$TARGET_BRANCH
-        
-        # Delete the temporary branch
-        git branch -D temp-branch
+        git push --force origin $TARGET_BRANCH
