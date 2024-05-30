@@ -1,63 +1,77 @@
-import psycopg2
-import time
+特定のブランチ（例：AaaPrdWebappやBbbPrdWebapp）にプルリクエストがマージされた際に、元の内容をバックアップとして新しいブランチに保存し、バックアップブランチを最新の5つまで保持するように設計されています。
 
-# データベース接続情報を設定します。ローカルのフォワーディングポート15432を使用。
-conn = psycopg2.connect(
-    dbname="development",
-    user="your_username",
-    password="your_password",
-    host="localhost",  # ポートフォワーディングを使用するため、ホストはlocalhostに設定
-    port=15432         # ローカルのフォワーディングポート
-)
-cursor = conn.cursor()
+rollback-management.yml
+----
+name: Rollback Branch Management
 
-# ログファイル設定
-log_file_path = "log.txt"
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - AaaPrdWebapp
+      - BbbPrdWebapp
 
-# 初期化（test1テーブルにid=1のデータが存在することを確認し、なければ挿入）
-cursor.execute("SELECT EXISTS(SELECT 1 FROM test1 WHERE id=1)")
-if not cursor.fetchone()[0]:
-    cursor.execute("INSERT INTO test1 (number) VALUES (0)")
-    conn.commit()
+jobs:
+  manage-rollback:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Ensure all history is fetched
 
-# カウントアップの初期値
-number = 1
+    - name: Setup environment
+      run: |
+        echo "MERGE_TIME=$(date +'%y%m%d%H%M')" >> $GITHUB_ENV
 
-try:
-    with open(log_file_path, 'a') as log_file:
-        while True:
-            try:
-                # 更新処理
-                update_start_time = time.time()
-                cursor.execute("UPDATE test1 SET number = %s WHERE id = 1", (number,))
-                conn.commit()
-                update_time = (time.time() - update_start_time) * 1000  # ミリ秒単位で計測
+    - name: Create and push rollback branch
+      run: |
+        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+        ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
+        git checkout -b $ROLLBACK_BRANCH
+        git push origin $ROLLBACK_BRANCH
 
-                # 読み取り処理
-                read_start_time = time.time()
-                cursor.execute("SELECT number FROM test1 WHERE id = 1")
-                read_number = cursor.fetchone()[0]
-                read_time = (time.time() - read_start_time) * 1000  # ミリ秒単位で計測
+    - name: Prune old rollback branches
+      run: |
+        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+        git fetch --prune
+        OLD_BRANCHES=$(git branch -r --sort=committerdate | grep "$BASE_BRANCH"Rollback | head -n -5)
+        for BRANCH in $OLD_BRANCHES; do
+          git push origin --delete $BRANCH
+        done
+----
 
-                # コンソールとログファイルへの出力
-                update_msg = f"[更新に費やした時間] write:{update_time:.2f}ms: {read_number}"
-                read_msg = f"[表示に費やした時間] read:{read_time:.2f}ms: {read_number}"
-                print(update_msg)
-                print(read_msg)
-                log_file.write(update_msg + '\n')
-                log_file.write(read_msg + '\n')
+■説明
 
-                # カウントアップ
-                number += 1
+<トリガー設定 (onセクション)>
 
-            except Exception as e:
-                error_msg = "[更新に費やした時間] write:NG\n[表示に費やした時間] read:NG"
-                print(error_msg)
-                log_file.write(error_msg + '\n')
+pull_request イベントが closed タイプ（マージやクローズ時）で発生し、対象のブランチが AaaPrdWebapp または BbbPrdWebapp の場合に、このワークフローがトリガーされます。
+types: [closed] は、プルリクエストが閉じられた（マージされた）時にトリガーされることを指定します。
+branches は、ワークフローがトリガーされる対象のブランチを指定します。
 
-            # 100ms待機
-            time.sleep(0.1)
+<ジョブ定義 (jobsセクション)>
 
-finally:
-    cursor.close()
-    conn.close()
+ジョブ設定
+・manage-rollback というジョブが定義され、マージされた場合に実行されます。
+・if: github.event.pull_request.merged == true は、プルリクエストが実際にマージされたときのみジョブを実行する条件を設定します。
+・runs-on: ubuntu-latest は、ジョブが実行される環境を指定します。この場合、最新のUbuntuイメージを使用します。
+
+ステップ定義 (stepsセクション)
+・各ステップは、ジョブの実行順序に従って記述されています。
+
+   1.リポジトリのチェックアウト
+   ・actions/checkout@v4 アクションを使用してリポジトリをチェックアウトします。
+   ・fetch-depth: 0 を設定することで、リポジトリの全ての履歴をフェッチします。これは古いブランチを正確に識別するために必要です。
+
+   2.環境設定(Setup environment)
+   ・MERGE_TIME 環境変数に現在の日時を設定します。date +'%y%m%d%H%M' コマンドを使用して、日時を YYMMDDHHMM 形式で取得し、$GITHUB_ENV に書き込みます。これにより、このワークフロー全体でこの環境変数が使用可能になります。
+
+   3.ロールバックブランチの作成とプッシュ(Create and push rollback branch)
+   ・BASE_BRANCH に、マージ先のブランチ名を設定します。
+   ・ROLLBACK_BRANCH に、BASE_BRANCH 、 Rollback 、 MERGE_TIME を組み合わせた名前を設定します。
+   ・新しいロールバックブランチをチェックアウトし、リモートリポジトリにプッシュします。
+
+   4.古いロールバックブランチの削除(Prune old rollback branches)
+   ・git fetch --prune を使用して、リモートリポジトリのすべてのブランチ情報をフェッチし、ローカルで削除されているブランチ情報を更新します。
+   ・git branch -r --sort=committerdate でリモートのブランチをコミット日付順にソートし、grep "$BASE_BRANCH"Rollback で該当するロールバックブランチをフィルタリングします。
+   ・最新の5つを残し、古いブランチを git push origin --delete を使用してリモートリポジトリから削除します。
