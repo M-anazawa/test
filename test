@@ -19,7 +19,7 @@ jobs:
         run: |
           MERGE_TIME=$(date +'%Y%m%d%H%M%S')
           BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-          PRE_MERGE_COMMIT=$(git rev-parse $BASE_BRANCH~1)
+          PRE_MERGE_COMMIT=$(git rev-parse origin/${BASE_BRANCH}~1)
           ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
           echo "MERGE_TIME=${MERGE_TIME}" >> $GITHUB_ENV
           echo "BASE_BRANCH=${BASE_BRANCH}" >> $GITHUB_ENV
