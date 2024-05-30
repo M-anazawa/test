@@ -21,13 +21,17 @@ jobs:
           echo "BASE_BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
           echo "ROLLBACK_BRANCH=${{ env.BASE_BRANCH }}Rollback${{ env.MERGE_TIME }}" >> $GITHUB_ENV
 
+      - name: Fetch and create rollback branch
+        run: |
+          git fetch origin
+          git checkout -b $ROLLBACK_BRANCH origin/${{ env.BASE_BRANCH }}
+
       - name: Create and push rollback branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch origin ${{ env.BASE_BRANCH }}
-          git checkout -b $ROLLBACK_BRANCH origin/${{ env.BASE_BRANCH }}
-          git pull origin ${{ env.BASE_BRANCH }}
+          git reset --hard origin/${{ env.BASE_BRANCH }}
           git push origin $ROLLBACK_BRANCH
 
       - name: Prune old rollback branches
