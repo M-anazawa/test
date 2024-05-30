@@ -21,16 +21,6 @@ jobs:
         fetch-depth: 0  # Ensure all history is fetched
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Check if branch is allowed to be cleared
-      run: |
-        TARGET_BRANCH=${{ github.event.inputs.target_branch }}
-        ALLOWED_BRANCHES=("AaaPrdWebapp" "BbbPrdWebapp")
-
-        if [[ ! " ${ALLOWED_BRANCHES[@]} " =~ " ${TARGET_BRANCH} " ]]; then
-          echo "Branch ${TARGET_BRANCH} is not allowed to be cleared."
-          exit 1
-        fi
-
     - name: Clear history
       run: |
         TARGET_BRANCH=${{ github.event.inputs.target_branch }}
