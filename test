@@ -1,3 +1,4 @@
+
 特定のブランチ（例：AaaPrdWebappやBbbPrdWebapp）にプルリクエストがマージされた際に、元の内容をバックアップとして新しいブランチに保存し、バックアップブランチを最新の5つまで保持するように設計されています。
 
 rollback-management.yml
@@ -19,12 +20,15 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Ensure all history is fetched
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup environment
       run: |
         echo "MERGE_TIME=$(date +'%y%m%d%H%M')" >> $GITHUB_ENV
 
     - name: Create and push rollback branch
+      env:
+        MERGE_TIME: ${{ env.MERGE_TIME }}
       run: |
         BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
         ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
@@ -37,7 +41,7 @@ jobs:
         git fetch --prune
         OLD_BRANCHES=$(git branch -r --sort=committerdate | grep "$BASE_BRANCH"Rollback | head -n -5)
         for BRANCH in $OLD_BRANCHES; do
-          git push origin --delete $BRANCH
+          git push origin --delete ${BRANCH#origin/}
         done
 ----
 
@@ -62,6 +66,7 @@ branches は、ワークフローがトリガーされる対象のブランチ�
    1.リポジトリのチェックアウト
    ・actions/checkout@v4 アクションを使用してリポジトリをチェックアウトします。
    ・fetch-depth: 0 を設定することで、リポジトリの全ての履歴をフェッチします。これは古いブランチを正確に識別するために必要です。
+   ・token: ${{ secrets.GITHUB_TOKEN }} これにより、GitHub Actionsのデフォルトトークンが使用され、リポジトリへの書き込みアクセスが許可されます。
 
    2.環境設定(Setup environment)
    ・MERGE_TIME 環境変数に現在の日時を設定します。date +'%y%m%d%H%M' コマンドを使用して、日時を YYMMDDHHMM 形式で取得し、$GITHUB_ENV に書き込みます。これにより、このワークフロー全体でこの環境変数が使用可能になります。
@@ -75,3 +80,6 @@ branches は、ワークフローがトリガーされる対象のブランチ�
    ・git fetch --prune を使用して、リモートリポジトリのすべてのブランチ情報をフェッチし、ローカルで削除されているブランチ情報を更新します。
    ・git branch -r --sort=committerdate でリモートのブランチをコミット日付順にソートし、grep "$BASE_BRANCH"Rollback で該当するロールバックブランチをフィルタリングします。
    ・最新の5つを残し、古いブランチを git push origin --delete を使用してリモートリポジトリから削除します。
+
+
+
