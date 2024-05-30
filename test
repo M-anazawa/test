@@ -17,15 +17,18 @@ jobs:
 
       - name: Setup environment
         run: |
+          echo "Setting up environment variables..."
           echo "MERGE_TIME=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
           echo "BASE_BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
           echo "ROLLBACK_BRANCH=${{ github.event.pull_request.base.ref }}Rollback${{ env.MERGE_TIME }}" >> $GITHUB_ENV
-          echo "MERGE_TIME: ${{ env.MERGE_TIME }}"
-          echo "BASE_BRANCH: ${{ env.BASE_BRANCH }}"
-          echo "ROLLBACK_BRANCH: ${{ env.ROLLBACK_BRANCH }}"
+          echo "Environment variables set:"
+          echo "MERGE_TIME=$(date +'%Y%m%d%H%M%S')"
+          echo "BASE_BRANCH=${{ github.event.pull_request.base.ref }}"
+          echo "ROLLBACK_BRANCH=${{ github.event.pull_request.base.ref }}Rollback$(date +'%Y%m%d%H%M%S')"
 
       - name: Fetch and create rollback branch
         run: |
+          echo "Fetching and creating rollback branch..."
           git fetch origin
           git checkout -b $ROLLBACK_BRANCH origin/${{ env.BASE_BRANCH }}
           git log -1
@@ -35,6 +38,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Creating and pushing rollback branch..."
           git fetch origin ${{ env.BASE_BRANCH }}
           git reset --hard origin/${{ env.BASE_BRANCH }}
           git push --force origin $ROLLBACK_BRANCH
@@ -45,6 +49,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Pruning old rollback branches..."
           ROLLBACK_PREFIX="${{ env.BASE_BRANCH }}Rollback"
           git fetch --prune origin
           ROLLBACK_BRANCHES=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep ${ROLLBACK_PREFIX} | sort -r)
