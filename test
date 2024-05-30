@@ -1,8 +1,3 @@
-
-特定のブランチ（例：AaaPrdWebappやBbbPrdWebapp）にプルリクエストがマージされた際に、元の内容をバックアップとして新しいブランチに保存し、バックアップブランチを最新の5つまで保持するように設計されています。
-
-rollback-management.yml
-----
 name: Rollback Branch Management
 
 on:
@@ -34,6 +29,10 @@ jobs:
         ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
         git checkout -b $ROLLBACK_BRANCH
         git push origin $ROLLBACK_BRANCH
+      shell: bash -l {0}
+      env:
+        GIT_TRACE: 1
+        GIT_CURL_VERBOSE: 1
 
     - name: Prune old rollback branches
       run: |
@@ -43,43 +42,3 @@ jobs:
         for BRANCH in $OLD_BRANCHES; do
           git push origin --delete ${BRANCH#origin/}
         done
-----
-
-■説明
-
-<トリガー設定 (onセクション)>
-
-pull_request イベントが closed タイプ（マージやクローズ時）で発生し、対象のブランチが AaaPrdWebapp または BbbPrdWebapp の場合に、このワークフローがトリガーされます。
-types: [closed] は、プルリクエストが閉じられた（マージされた）時にトリガーされることを指定します。
-branches は、ワークフローがトリガーされる対象のブランチを指定します。
-
-<ジョブ定義 (jobsセクション)>
-
-ジョブ設定
-・manage-rollback というジョブが定義され、マージされた場合に実行されます。
-・if: github.event.pull_request.merged == true は、プルリクエストが実際にマージされたときのみジョブを実行する条件を設定します。
-・runs-on: ubuntu-latest は、ジョブが実行される環境を指定します。この場合、最新のUbuntuイメージを使用します。
-
-ステップ定義 (stepsセクション)
-・各ステップは、ジョブの実行順序に従って記述されています。
-
-   1.リポジトリのチェックアウト
-   ・actions/checkout@v4 アクションを使用してリポジトリをチェックアウトします。
-   ・fetch-depth: 0 を設定することで、リポジトリの全ての履歴をフェッチします。これは古いブランチを正確に識別するために必要です。
-   ・token: ${{ secrets.GITHUB_TOKEN }} これにより、GitHub Actionsのデフォルトトークンが使用され、リポジトリへの書き込みアクセスが許可されます。
-
-   2.環境設定(Setup environment)
-   ・MERGE_TIME 環境変数に現在の日時を設定します。date +'%y%m%d%H%M' コマンドを使用して、日時を YYMMDDHHMM 形式で取得し、$GITHUB_ENV に書き込みます。これにより、このワークフロー全体でこの環境変数が使用可能になります。
-
-   3.ロールバックブランチの作成とプッシュ(Create and push rollback branch)
-   ・BASE_BRANCH に、マージ先のブランチ名を設定します。
-   ・ROLLBACK_BRANCH に、BASE_BRANCH 、 Rollback 、 MERGE_TIME を組み合わせた名前を設定します。
-   ・新しいロールバックブランチをチェックアウトし、リモートリポジトリにプッシュします。
-
-   4.古いロールバックブランチの削除(Prune old rollback branches)
-   ・git fetch --prune を使用して、リモートリポジトリのすべてのブランチ情報をフェッチし、ローカルで削除されているブランチ情報を更新します。
-   ・git branch -r --sort=committerdate でリモートのブランチをコミット日付順にソートし、grep "$BASE_BRANCH"Rollback で該当するロールバックブランチをフィルタリングします。
-   ・最新の5つを残し、古いブランチを git push origin --delete を使用してリモートリポジトリから削除します。
-
-
-
