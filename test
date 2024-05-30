@@ -18,15 +18,18 @@ jobs:
       - name: Setup environment
         run: |
           MERGE_TIME=$(date +'%Y%m%d%H%M%S')
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          PRE_MERGE_COMMIT=$(git rev-parse $BASE_BRANCH~1)
+          ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
           echo "MERGE_TIME=${MERGE_TIME}" >> $GITHUB_ENV
-          echo "BASE_BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
-          echo "ROLLBACK_BRANCH=${{ github.event.pull_request.base.ref }}Rollback${MERGE_TIME}" >> $GITHUB_ENV
-          echo "PRE_MERGE_COMMIT=$(git rev-parse ${{ github.event.pull_request.base.ref }}^)" >> $GITHUB_ENV
+          echo "BASE_BRANCH=${BASE_BRANCH}" >> $GITHUB_ENV
+          echo "PRE_MERGE_COMMIT=${PRE_MERGE_COMMIT}" >> $GITHUB_ENV
+          echo "ROLLBACK_BRANCH=${ROLLBACK_BRANCH}" >> $GITHUB_ENV
           echo "Environment variables set:"
           echo "MERGE_TIME=${MERGE_TIME}"
-          echo "BASE_BRANCH=${{ github.event.pull_request.base.ref }}"
-          echo "ROLLBACK_BRANCH=${{ github.event.pull_request.base.ref }}Rollback${MERGE_TIME}"
-          echo "PRE_MERGE_COMMIT=$(git rev-parse ${{ github.event.pull_request.base.ref }}^)"
+          echo "BASE_BRANCH=${BASE_BRANCH}"
+          echo "PRE_MERGE_COMMIT=${PRE_MERGE_COMMIT}"
+          echo "ROLLBACK_BRANCH=${ROLLBACK_BRANCH}"
 
       - name: Fetch and create rollback branch
         run: |
