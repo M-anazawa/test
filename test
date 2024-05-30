@@ -32,7 +32,7 @@ jobs:
         run: |
           git fetch origin ${{ env.BASE_BRANCH }}
           git reset --hard origin/${{ env.BASE_BRANCH }}
-          git push origin $ROLLBACK_BRANCH
+          git push --force origin $ROLLBACK_BRANCH
 
       - name: Prune old rollback branches
         env:
