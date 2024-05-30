@@ -34,7 +34,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ROLLBACK_PREFIX="${{ env.BASE_BRANCH }}Rollback"
-          git fetch --prune origin "+refs/heads/${ROLLBACK_PREFIX}*"
+          git fetch --prune origin
           ROLLBACK_BRANCHES=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep ${ROLLBACK_PREFIX} | sort -r)
           COUNTER=0
           for BRANCH in $ROLLBACK_BRANCHES; do
