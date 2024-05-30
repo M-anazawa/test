@@ -19,7 +19,7 @@ jobs:
         run: |
           echo "MERGE_TIME=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
           echo "BASE_BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
-          echo "ROLLBACK_BRANCH=${{ env.BASE_BRANCH }}Rollback${{ env.MERGE_TIME }}" >> $GITHUB_ENV
+          echo "ROLLBACK_BRANCH=${{ github.event.pull_request.base.ref }}Rollback${{ env.MERGE_TIME }}" >> $GITHUB_ENV
           echo "MERGE_TIME: ${{ env.MERGE_TIME }}"
           echo "BASE_BRANCH: ${{ env.BASE_BRANCH }}"
           echo "ROLLBACK_BRANCH: ${{ env.ROLLBACK_BRANCH }}"
