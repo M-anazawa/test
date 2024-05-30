@@ -1,1 +1,56 @@
+name: Manage Rollback Branches
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  TARGET_BRANCHES: "AaaPrdWebapp BbbPrdWebapp"  # 対象ブランチをスペース区切りで設定
+
+jobs:
+  manage-rollback:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up environment
+        run: |
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          if echo "$TARGET_BRANCHES" | grep -w "$BASE_BRANCH" > /dev/null; then
+            echo "BASE_BRANCH=${BASE_BRANCH}" >> $GITHUB_ENV
+          else
+            echo "This action does not apply to the base branch ${BASE_BRANCH}."
+            exit 0
+          fi
+          MERGE_TIME=$(date -u +"%Y%m%d%H%M")
+          echo "MERGE_TIME=${MERGE_TIME}" >> $GITHUB_ENV
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+
+      - name: Create and push rollback branch
+        run: |
+          ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
+          git checkout -b $ROLLBACK_BRANCH
+          git push origin $ROLLBACK_BRANCH
+        env:
+          BASE_BRANCH: ${{ env.BASE_BRANCH }}
+          MERGE_TIME: ${{ env.MERGE_TIME }}
+
+      - name: Checkout merged branch
+        uses: actions/checkout@v4
+
+      - name: Prune old rollback branches
+        run: |
+          BRANCHES_TO_KEEP=5
+          BASE_BRANCH="${BASE_BRANCH}Rollback"
+          branches=$(git ls-remote --heads origin | grep "${BASE_BRANCH}" | cut -f2 | sort -r)
+          count=0
+          for branch in $branches; do
+            count=$((count + 1))
+            if [ $count -gt $BRANCHES_TO_KEEP ]; then
+              git push origin --delete "${branch##refs/heads/}"
+            fi
+          done
 
