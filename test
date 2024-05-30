@@ -2,54 +2,44 @@ name: Manage Rollback Branches
 
 on:
   pull_request:
-    types: [closed]
-
-env:
-  TARGET_BRANCHES: "AaaPrdWebapp BbbPrdWebapp"  # 対象ブランチをスペース区切りで設定
+    types:
+      - closed
 
 jobs:
   manage-rollback:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.merged }}
     steps:
-      - name: Set up environment
-        run: |
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-          if echo "$TARGET_BRANCHES" | grep -w "$BASE_BRANCH" > /dev/null; then
-            echo "BASE_BRANCH=${BASE_BRANCH}" >> $GITHUB_ENV
-          else
-            echo "This action does not apply to the base branch ${BASE_BRANCH}."
-            exit 0
-          fi
-          MERGE_TIME=$(date -u +"%Y%m%d%H%M")
-          echo "MERGE_TIME=${MERGE_TIME}" >> $GITHUB_ENV
-
       - name: Checkout base branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Setup environment
+        run: |
+          echo "MERGE_TIME=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
+          echo "BASE_BRANCH=${{ github.event.pull_request.base.ref }}" >> $GITHUB_ENV
+          echo "ROLLBACK_BRANCH=${{ env.BASE_BRANCH }}Rollback${{ env.MERGE_TIME }}" >> $GITHUB_ENV
 
       - name: Create and push rollback branch
-        run: |
-          ROLLBACK_BRANCH="${BASE_BRANCH}Rollback${MERGE_TIME}"
-          git checkout -b $ROLLBACK_BRANCH
-          git push origin $ROLLBACK_BRANCH
         env:
-          BASE_BRANCH: ${{ env.BASE_BRANCH }}
-          MERGE_TIME: ${{ env.MERGE_TIME }}
-
-      - name: Checkout merged branch
-        uses: actions/checkout@v4
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin ${{ env.BASE_BRANCH }}
+          git checkout -b $ROLLBACK_BRANCH origin/${{ env.BASE_BRANCH }}
+          git push origin $ROLLBACK_BRANCH
 
       - name: Prune old rollback branches
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCHES_TO_KEEP=5
-          BASE_BRANCH="${BASE_BRANCH}Rollback"
-          branches=$(git ls-remote --heads origin | grep "${BASE_BRANCH}" | cut -f2 | sort -r)
-          count=0
-          for branch in $branches; do
-            count=$((count + 1))
-            if [ $count -gt $BRANCHES_TO_KEEP ]; then
-              git push origin --delete "${branch##refs/heads/}"
+          ROLLBACK_PREFIX="${{ env.BASE_BRANCH }}Rollback"
+          git fetch --prune origin "+refs/heads/${ROLLBACK_PREFIX}*"
+          ROLLBACK_BRANCHES=$(git for-each-ref --format='%(refname:short)' refs/remotes/origin | grep ${ROLLBACK_PREFIX} | sort -r)
+          COUNTER=0
+          for BRANCH in $ROLLBACK_BRANCHES; do
+            if [[ $COUNTER -ge 5 ]]; then
+              git push origin --delete "${BRANCH#origin/}"
             fi
+            COUNTER=$((COUNTER+1))
           done
