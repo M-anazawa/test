@@ -38,3 +38,22 @@ jobs:
         for BRANCH in $OLD_BRANCHES; do
           git push origin --delete ${BRANCH#origin/}
         done
+
+    - name: Clear commit history for target branch
+      run: |
+        TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+        
+        # Checkout an orphan branch (no parents)
+        git checkout --orphan temp-branch
+        
+        # Remove all files
+        git rm -rf .
+        
+        # Create an empty commit
+        git commit --allow-empty -m "Clearing branch history"
+        
+        # Force push the new branch to origin
+        git push --force origin temp-branch:$TARGET_BRANCH
+        
+        # Delete the temporary branch
+        git branch -D temp-branch
