@@ -1,44 +1,62 @@
-name: Clear Branch History
+name: Rollback Branch Management
 
 on:
-  workflow_dispatch:
-    inputs:
-      target_branch:
-        description: 'The branch to clear history'
-        required: true
-        type: choice
-        options:
-          - AaaPrdWebapp
-          - BbbPrdWebapp
+  pull_request:
+    types: [closed]
+    branches:
+      - AaaPrdWebapp
+      - BbbPrdWebapp
 
 jobs:
-  clear-history:
+  manage-rollback:
+    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Ensure all history is fetched
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Clear history
+    - name: Setup environment
       run: |
-        TARGET_BRANCH=${{ github.event.inputs.target_branch }}
+        echo "MERGE_TIME=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
 
-        # Checkout an orphan branch (no parents)
+    - name: Create and push rollback branch
+      env:
+        MERGE_TIME: ${{ env.MERGE_TIME }}
+      run: |
+        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+        ROLLBACK_BRANCH="${BASE_BRANCH}-${MERGE_TIME}"
+        git checkout -b $ROLLBACK_BRANCH
+        git push origin $ROLLBACK_BRANCH
+
+    - name: Prune old rollback branches
+      run: |
+        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+        git fetch --prune
+        OLD_BRANCHES=$(git branch -r --sort=committerdate | grep "$BASE_BRANCH" | head -n -5)
+        for BRANCH in $OLD_BRANCHES; do
+          git push origin --delete ${BRANCH#origin/}
+        done
+
+    - name: Clear commit history for target branch while keeping files
+      run: |
+        TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+        
+        # Create a new orphan branch, no parents
         git checkout --orphan temp-branch
-
-        # Remove all files
-        git rm -rf .
-
-        # Create an empty commit
-        git commit --allow-empty -m "Clearing branch history"
-
+        
+        # Add all files
+        git add -A
+        
+        # Commit the files
+        git commit -m "Initial commit to clear history"
+        
         # Delete the target branch
-        git push origin --delete $TARGET_BRANCH
-
-        # Rename the temporary branch to the target branch
+        git branch -D $TARGET_BRANCH
+        
+        # Rename the current branch to the target branch
         git branch -m $TARGET_BRANCH
-
+        
         # Force push the new branch to origin
         git push --force origin $TARGET_BRANCH
