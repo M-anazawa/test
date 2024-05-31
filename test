@@ -19,7 +19,8 @@ jobs:
 
     - name: Setup environment
       run: |
-        echo "MERGE_TIME=$(date +'%Y%m%d%H%M')" >> $GITHUB_ENV
+        MERGE_TIME=$(TZ=Asia/Tokyo date +'%Y%m%d%H%M')
+        echo "MERGE_TIME=${MERGE_TIME}" >> $GITHUB_ENV
 
     - name: Create and push rollback branch
       env:
@@ -28,6 +29,11 @@ jobs:
         BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
         ROLLBACK_BRANCH="${BASE_BRANCH}-${MERGE_TIME}"
         git checkout -b $ROLLBACK_BRANCH
+        
+        # Temporarily set git user config
+        git config user.email "no-reply@example.com"
+        git config user.name "GitHub Action"
+        
         git push origin $ROLLBACK_BRANCH
 
     - name: Prune old rollback branches
@@ -42,6 +48,10 @@ jobs:
     - name: Clear commit history for target branch while keeping files
       run: |
         TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
+        
+        # Temporarily set git user config
+        git config user.email "no-reply@example.com"
+        git config user.name "GitHub Action"
         
         # Create a new orphan branch, no parents
         git checkout --orphan temp-branch
