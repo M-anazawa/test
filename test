@@ -40,7 +40,7 @@ jobs:
       run: |
         BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
         git fetch --prune
-        OLD_BRANCHES=$(git branch -r --sort=committerdate | grep "$BASE_BRANCH" | head -n -5)
+        OLD_BRANCHES=$(git branch -r --sort=committerdate | grep "$BASE_BRANCH" | head -n -6)
         for BRANCH in $OLD_BRANCHES; do
           git push origin --delete ${BRANCH#origin/}
         done
