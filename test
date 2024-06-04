@@ -44,29 +44,3 @@ jobs:
         for BRANCH in $OLD_BRANCHES; do
           git push origin --delete ${BRANCH#origin/}
         done
-
-    - name: Clear commit history for target branch while keeping files
-      run: |
-        TARGET_BRANCH="${{ github.event.pull_request.base.ref }}"
-        
-        # Temporarily set git user config
-        git config user.email "no-reply@example.com"
-        git config user.name "GitHub Action"
-        
-        # Create a new orphan branch, no parents
-        git checkout --orphan temp-branch
-        
-        # Add all files
-        git add -A
-        
-        # Commit the files
-        git commit -m "Initial commit to clear history"
-        
-        # Delete the target branch
-        git branch -D $TARGET_BRANCH
-        
-        # Rename the current branch to the target branch
-        git branch -m $TARGET_BRANCH
-        
-        # Force push the new branch to origin
-        git push --force origin $TARGET_BRANCH
