@@ -34,21 +34,14 @@ jobs:
         TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
         git fetch --prune
         BACKUP_BRANCHES=$(git branch -r | grep "${TARGET_BRANCH}-" | sed 's/origin\///' | sort -r)
-        echo "${BACKUP_BRANCHES}" > backup_branches.txt
+        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> backup_branches.txt
         echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
 
     - name: Read backup branches
       run: |
         BACKUP_BRANCHES=$(cat backup_branches.txt)
         echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
-        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
-
-    - name: Choose backup branch
-      run: |
-        echo "Available backup branches:"
-        echo "${{ env.BACKUP_BRANCHES }}"
-        echo "Please choose a backup branch from the list above and set it as an input variable for the workflow run."
-        echo "SELECTED_BACKUP_BRANCH=$(echo "${{ env.BACKUP_BRANCHES }}" | head -n 1)" >> $GITHUB_ENV
+        echo "SELECTED_BACKUP_BRANCH=$(echo ${BACKUP_BRANCHES} | head -n 1)" >> $GITHUB_ENV
 
     - name: Delete the target branch
       run: |
