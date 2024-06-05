@@ -8,8 +8,8 @@ on:
         required: true
         type: choice
         options:
-          - AaaPrdWebapp
-          - BbbPrdWebapp
+          - AdhLdcrPrdS3
+          - AdhYdxPrdS3
 
 jobs:
   manage-rollback:
@@ -34,13 +34,12 @@ jobs:
         TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
         git fetch --prune
         BACKUP_BRANCHES=$(git branch -r | grep "${TARGET_BRANCH}-" | sed 's/origin\///' | sort -r)
-        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> backup_branches.txt
-        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
+        echo "${BACKUP_BRANCHES}" > backup_branches.txt
+        echo "BACKUP_BRANCHES=$(cat backup_branches.txt)" >> $GITHUB_ENV
 
     - name: Read backup branches
       run: |
         BACKUP_BRANCHES=$(cat backup_branches.txt)
-        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
         echo "SELECTED_BACKUP_BRANCH=$(echo ${BACKUP_BRANCHES} | head -n 1)" >> $GITHUB_ENV
 
     - name: Delete the target branch
