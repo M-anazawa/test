@@ -34,20 +34,20 @@ jobs:
       run: |
         TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
         BACKUP_BRANCHES=$(git branch -r | grep "${TARGET_BRANCH}-" | sed 's/origin\///' | sort -r)
+        echo "${BACKUP_BRANCHES}" > backup_branches.txt
+      continue-on-error: true
+
+    - name: Read backup branches
+      id: read-backup-branches
+      run: |
+        BACKUP_BRANCHES=$(cat backup_branches.txt)
         echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
         echo "::set-output name=backup_branches::${BACKUP_BRANCHES}"
 
     - name: Choose backup branch
       id: choose-backup-branch
       run: |
-        echo "Available backup branches:"
-        echo "${{ steps.get-backup-branches.outputs.backup_branches }}"
-        echo "Please choose a backup branch from the list above and set it as an input variable for the workflow run."
-
-    - name: Set selected backup branch
-      if: steps.get-backup-branches.outputs.backup_branches
-      run: |
-        SELECTED_BACKUP_BRANCH=$(echo "${{ steps.get-backup-branches.outputs.backup_branches }}" | head -n 1)
+        SELECTED_BACKUP_BRANCH=$(echo "${{ steps.read-backup-branches.outputs.backup_branches }}" | head -n 1)
         echo "SELECTED_BACKUP_BRANCH=${SELECTED_BACKUP_BRANCH}" >> $GITHUB_ENV
         echo "::set-output name=selected_backup_branch::${SELECTED_BACKUP_BRANCH}"
 
@@ -62,13 +62,13 @@ jobs:
 
     - name: Update EditFileRetry in backup branch
       run: |
-        git checkout ${SELECTED_BACKUP_BRANCH}
+        git checkout ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
         echo "${TIMESTAMP} ${TARGET_BRANCH} rollback" >> .github/workflows/EditFileRetry
         git config user.email "no-reply@example.com"
         git config user.name "GitHub Action"
         git add .github/workflows/EditFileRetry
         git commit -m "Add rollback timestamp to EditFileRetry"
-        git push origin ${SELECTED_BACKUP_BRANCH}
+        git push origin ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
 
     - name: Update EditFileRetry in develop_yl_ga branch
       run: |
@@ -85,7 +85,7 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         commit-message: "Rollback ${TARGET_BRANCH} to ${SELECTED_BACKUP_BRANCH}"
-        branch: ${SELECTED_BACKUP_BRANCH}
+        branch: ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
         base: $TARGET_BRANCH
-        title: "Rollback ${TARGET_BRANCH} to ${SELECTED_BACKUP_BRANCH}"
-        body: "This PR rolls back ${TARGET_BRANCH} to the state of ${SELECTED_BACKUP_BRANCH}."
+        title: "Rollback ${TARGET_BRANCH} to ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}"
+        body: "This PR rolls back ${TARGET_BRANCH} to the state of ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}."
