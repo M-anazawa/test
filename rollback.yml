@@ -11,11 +11,8 @@ on:
           - AdhLdcrPrdS3
           - AdhYdxPrdS3
       backup_branch:
-        description: 'Select the backup branch to use for rollback'
+        description: 'Enter the backup branch to use for rollback'
         required: true
-        type: choice
-        options:
-          - Please choose a target branch first
 
 jobs:
   manage-rollback:
