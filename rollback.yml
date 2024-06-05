@@ -30,55 +30,49 @@ jobs:
         echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
 
     - name: Get backup branches
-      id: get-backup-branches
       run: |
         TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
         git fetch --prune
         BACKUP_BRANCHES=$(git branch -r | grep "${TARGET_BRANCH}-" | sed 's/origin\///' | sort -r)
+        echo "${BACKUP_BRANCHES}" > backup_branches.txt
         echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
-        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> backup_branches.txt
-        echo "::set-output name=backup_branches::$(cat backup_branches.txt)"
 
     - name: Read backup branches
-      id: read-backup-branches
       run: |
         BACKUP_BRANCHES=$(cat backup_branches.txt)
         echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
-        echo "::set-output name=backup_branches::${BACKUP_BRANCHES}"
+        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
 
     - name: Choose backup branch
-      id: choose-backup-branch
       run: |
-        BACKUP_BRANCHES=${{ steps.read-backup-branches.outputs.backup_branches }}
         echo "Available backup branches:"
-        echo "${BACKUP_BRANCHES}"
-        SELECTED_BACKUP_BRANCH=$(echo "${BACKUP_BRANCHES}" | head -n 1)
-        echo "SELECTED_BACKUP_BRANCH=${SELECTED_BACKUP_BRANCH}" >> $GITHUB_ENV
-        echo "::set-output name=selected_backup_branch::${SELECTED_BACKUP_BRANCH}"
+        echo "${{ env.BACKUP_BRANCHES }}"
+        echo "Please choose a backup branch from the list above and set it as an input variable for the workflow run."
+        echo "SELECTED_BACKUP_BRANCH=$(echo "${{ env.BACKUP_BRANCHES }}" | head -n 1)" >> $GITHUB_ENV
 
     - name: Delete the target branch
       run: |
-        git push origin --delete $TARGET_BRANCH
+        git push origin --delete ${{ env.TARGET_BRANCH }}
 
     - name: Create new branch from backup branch
       run: |
-        git checkout -b $TARGET_BRANCH origin/${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
-        git push origin $TARGET_BRANCH
+        git checkout -b ${{ env.TARGET_BRANCH }} origin/${{ env.SELECTED_BACKUP_BRANCH }}
+        git push origin ${{ env.TARGET_BRANCH }}
 
     - name: Update EditFileRetry in backup branch
       run: |
-        git checkout ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
-        echo "${TIMESTAMP} ${TARGET_BRANCH} rollback" >> .github/workflows/EditFileRetry
+        git checkout ${{ env.SELECTED_BACKUP_BRANCH }}
+        echo "${{ env.TIMESTAMP }} ${{ env.TARGET_BRANCH }} rollback" >> .github/workflows/EditFileRetry
         git config user.email "no-reply@example.com"
         git config user.name "GitHub Action"
         git add .github/workflows/EditFileRetry
         git commit -m "Add rollback timestamp to EditFileRetry"
-        git push origin ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
+        git push origin ${{ env.SELECTED_BACKUP_BRANCH }}
 
     - name: Update EditFileRetry in develop_yl_ga branch
       run: |
         git checkout develop_yl_ga
-        echo "${TIMESTAMP} ${TARGET_BRANCH} rollback" >> .github/workflows/EditFileRetry
+        echo "${{ env.TIMESTAMP }} ${{ env.TARGET_BRANCH }} rollback" >> .github/workflows/EditFileRetry
         git config user.email "no-reply@example.com"
         git config user.name "GitHub Action"
         git add .github/workflows/EditFileRetry
@@ -89,8 +83,8 @@ jobs:
       uses: peter-evans/create-pull-request@v3
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: "Rollback ${TARGET_BRANCH} to ${SELECTED_BACKUP_BRANCH}"
-        branch: ${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
-        base: $TARGET_BRANCH
-        title: "Rollback ${TARGET_BRANCH} to ${SELECTED_BACKUP_BRANCH}"
-        body: "This PR rolls back ${TARGET_BRANCH} to the state of ${SELECTED_BACKUP_BRANCH}."
+        commit-message: "Rollback ${{ env.TARGET_BRANCH }} to ${{ env.SELECTED_BACKUP_BRANCH }}"
+        branch: ${{ env.SELECTED_BACKUP_BRANCH }}
+        base: ${{ env.TARGET_BRANCH }}
+        title: "Rollback ${{ env.TARGET_BRANCH }} to ${{ env.SELECTED_BACKUP_BRANCH }}"
+        body: "This PR rolls back ${{ env.TARGET_BRANCH }} to the state of ${{ env.SELECTED_BACKUP_BRANCH }}."
