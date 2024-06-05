@@ -1,0 +1,91 @@
+name: Rollback Branch Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Select the target branch to rollback (delete)'
+        required: true
+        type: choice
+        options:
+          - AaaPrdWebapp
+          - BbbPrdWebapp
+
+jobs:
+  manage-rollback:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Ensure all history is fetched
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup environment
+      run: |
+        TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
+        TIMESTAMP=$(TZ=Asia/Tokyo date +'%Y/%m/%d %H:%M')
+        echo "TARGET_BRANCH=${TARGET_BRANCH}" >> $GITHUB_ENV
+        echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
+
+    - name: Get backup branches
+      id: get-backup-branches
+      run: |
+        TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
+        BACKUP_BRANCHES=$(git branch -r | grep "${TARGET_BRANCH}-" | sed 's/origin\///' | sort -r)
+        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
+        echo "::set-output name=backup_branches::${BACKUP_BRANCHES}"
+
+    - name: Choose backup branch
+      id: choose-backup-branch
+      run: |
+        echo "Available backup branches:"
+        echo "${{ steps.get-backup-branches.outputs.backup_branches }}"
+        echo "Please choose a backup branch from the list above and set it as an input variable for the workflow run."
+
+    - name: Set selected backup branch
+      if: steps.get-backup-branches.outputs.backup_branches
+      run: |
+        SELECTED_BACKUP_BRANCH=$(echo "${{ steps.get-backup-branches.outputs.backup_branches }}" | head -n 1)
+        echo "SELECTED_BACKUP_BRANCH=${SELECTED_BACKUP_BRANCH}" >> $GITHUB_ENV
+        echo "::set-output name=selected_backup_branch::${SELECTED_BACKUP_BRANCH}"
+
+    - name: Delete the target branch
+      run: |
+        git push origin --delete $TARGET_BRANCH
+
+    - name: Create new branch from backup branch
+      run: |
+        git checkout -b $TARGET_BRANCH origin/${{ steps.choose-backup-branch.outputs.selected_backup_branch }}
+        git push origin $TARGET_BRANCH
+
+    - name: Update EditFileRetry in backup branch
+      run: |
+        git checkout ${SELECTED_BACKUP_BRANCH}
+        echo "${TIMESTAMP} ${TARGET_BRANCH} rollback" >> .github/workflows/EditFileRetry
+        git config user.email "no-reply@example.com"
+        git config user.name "GitHub Action"
+        git add .github/workflows/EditFileRetry
+        git commit -m "Add rollback timestamp to EditFileRetry"
+        git push origin ${SELECTED_BACKUP_BRANCH}
+
+    - name: Update EditFileRetry in develop_yl_ga branch
+      run: |
+        git checkout develop_yl_ga
+        echo "${TIMESTAMP} ${TARGET_BRANCH} rollback" >> .github/workflows/EditFileRetry
+        git config user.email "no-reply@example.com"
+        git config user.name "GitHub Action"
+        git add .github/workflows/EditFileRetry
+        git commit -m "Add rollback timestamp to EditFileRetry"
+        git push origin develop_yl_ga
+
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "Rollback ${TARGET_BRANCH} to ${SELECTED_BACKUP_BRANCH}"
+        branch: ${SELECTED_BACKUP_BRANCH}
+        base: $TARGET_BRANCH
+        title: "Rollback ${TARGET_BRANCH} to ${SELECTED_BACKUP_BRANCH}"
+        body: "This PR rolls back ${TARGET_BRANCH} to the state of ${SELECTED_BACKUP_BRANCH}."
