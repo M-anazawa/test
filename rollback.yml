@@ -10,6 +10,12 @@ on:
         options:
           - AdhLdcrPrdS3
           - AdhYdxPrdS3
+      backup_branch:
+        description: 'Select the backup branch to use for rollback'
+        required: true
+        type: choice
+        options:
+          - Please choose a target branch first
 
 jobs:
   manage-rollback:
@@ -25,24 +31,11 @@ jobs:
     - name: Setup environment
       run: |
         TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
+        BACKUP_BRANCH="${{ github.event.inputs.backup_branch }}"
         TIMESTAMP=$(TZ=Asia/Tokyo date +'%Y/%m/%d %H:%M')
         echo "TARGET_BRANCH=${TARGET_BRANCH}" >> $GITHUB_ENV
+        echo "BACKUP_BRANCH=${BACKUP_BRANCH}" >> $GITHUB_ENV
         echo "TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
-
-    - name: Get backup branches
-      run: |
-        TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
-        git fetch --prune
-        BACKUP_BRANCHES=$(git branch -r | grep "${TARGET_BRANCH}-" | sed 's/origin\///' | sort -r)
-        echo "BACKUP_BRANCHES<<EOF" >> $GITHUB_ENV
-        echo "${BACKUP_BRANCHES}" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
-
-    - name: Read backup branches
-      run: |
-        BACKUP_BRANCHES=$(echo "$BACKUP_BRANCHES")
-        SELECTED_BACKUP_BRANCH=$(echo "$BACKUP_BRANCHES" | head -n 1)
-        echo "SELECTED_BACKUP_BRANCH=$SELECTED_BACKUP_BRANCH" >> $GITHUB_ENV
 
     - name: Delete the target branch
       run: |
@@ -50,18 +43,18 @@ jobs:
 
     - name: Create new branch from backup branch
       run: |
-        git checkout -b ${{ env.TARGET_BRANCH }} origin/${{ env.SELECTED_BACKUP_BRANCH }}
+        git checkout -b ${{ env.TARGET_BRANCH }} origin/${{ env.BACKUP_BRANCH }}
         git push origin ${{ env.TARGET_BRANCH }}
 
     - name: Update EditFileRetry in backup branch
       run: |
-        git checkout ${{ env.SELECTED_BACKUP_BRANCH }}
+        git checkout ${{ env.BACKUP_BRANCH }}
         echo "${{ env.TIMESTAMP }} ${{ env.TARGET_BRANCH }} rollback" >> .github/workflows/EditFileRetry
         git config user.email "no-reply@example.com"
         git config user.name "GitHub Action"
         git add .github/workflows/EditFileRetry
         git commit -m "Add rollback timestamp to EditFileRetry"
-        git push origin ${{ env.SELECTED_BACKUP_BRANCH }}
+        git push origin ${{ env.BACKUP_BRANCH }}
 
     - name: Update EditFileRetry in develop_yl_ga branch
       run: |
@@ -77,8 +70,8 @@ jobs:
       uses: peter-evans/create-pull-request@v3
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: "Rollback ${{ env.TARGET_BRANCH }} to ${{ env.SELECTED_BACKUP_BRANCH }}"
-        branch: ${{ env.SELECTED_BACKUP_BRANCH }}
+        commit-message: "Rollback ${{ env.TARGET_BRANCH }} to ${{ env.BACKUP_BRANCH }}"
+        branch: ${{ env.BACKUP_BRANCH }}
         base: ${{ env.TARGET_BRANCH }}
-        title: "Rollback ${{ env.TARGET_BRANCH }} to ${{ env.SELECTED_BACKUP_BRANCH }}"
-        body: "This PR rolls back ${{ env.TARGET_BRANCH }} to the state of ${{ env.SELECTED_BACKUP_BRANCH }}."
+        title: "Rollback ${{ env.TARGET_BRANCH }} to ${{ env.BACKUP_BRANCH }}"
+        body: "This PR rolls back ${{ env.TARGET_BRANCH }} to the state of ${{ env.BACKUP_BRANCH }}."
