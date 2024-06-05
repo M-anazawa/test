@@ -34,13 +34,15 @@ jobs:
         TARGET_BRANCH="${{ github.event.inputs.target_branch }}"
         git fetch --prune
         BACKUP_BRANCHES=$(git branch -r | grep "${TARGET_BRANCH}-" | sed 's/origin\///' | sort -r)
-        echo "${BACKUP_BRANCHES}" > backup_branches.txt
-        echo "BACKUP_BRANCHES=$(cat backup_branches.txt)" >> $GITHUB_ENV
+        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
+        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $RUNNER_TEMP/backup_branches.txt
 
     - name: Read backup branches
       run: |
-        BACKUP_BRANCHES=$(cat backup_branches.txt)
-        echo "SELECTED_BACKUP_BRANCH=$(echo ${BACKUP_BRANCHES} | head -n 1)" >> $GITHUB_ENV
+        BACKUP_BRANCHES=$(cat $RUNNER_TEMP/backup_branches.txt)
+        echo "BACKUP_BRANCHES=${BACKUP_BRANCHES}" >> $GITHUB_ENV
+        SELECTED_BACKUP_BRANCH=$(echo "${BACKUP_BRANCHES}" | head -n 1)
+        echo "SELECTED_BACKUP_BRANCH=${SELECTED_BACKUP_BRANCH}" >> $GITHUB_ENV
 
     - name: Delete the target branch
       run: |
