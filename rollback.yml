@@ -46,24 +46,24 @@ jobs:
         git checkout -b ${{ env.TARGET_BRANCH }} origin/${{ env.BACKUP_BRANCH }}
         git push origin ${{ env.TARGET_BRANCH }}
 
-    - name: Update EditFileRetry in backup branch
+    - name: Update EditFileForRetry in backup branch
       run: |
         git checkout ${{ env.BACKUP_BRANCH }}
-        echo "${{ env.TIMESTAMP }} ${{ env.TARGET_BRANCH }} rollback" >> .github/workflows/EditFileRetry
+        echo "${{ env.TIMESTAMP }} ${{ env.TARGET_BRANCH }} rollback" >> .github/workflows/EditFileForRetry
         git config user.email "no-reply@example.com"
         git config user.name "GitHub Action"
-        git add .github/workflows/EditFileRetry
-        git commit -m "Add rollback timestamp to EditFileRetry"
+        git add .github/workflows/EditFileForRetry
+        git commit -m "Add rollback timestamp to EditFileForRetry"
         git push origin ${{ env.BACKUP_BRANCH }}
 
-    - name: Update EditFileRetry in develop_yl_ga branch
+    - name: Update EditFileForRetry in develop_yl_ga branch
       run: |
         git checkout develop_yl_ga
-        echo "${{ env.TIMESTAMP }} ${{ env.TARGET_BRANCH }} rollback" >> .github/workflows/EditFileRetry
+        echo "${{ env.TIMESTAMP }} ${{ env.TARGET_BRANCH }} rollback" >> .github/workflows/EditFileForRetry
         git config user.email "no-reply@example.com"
         git config user.name "GitHub Action"
-        git add .github/workflows/EditFileRetry
-        git commit -m "Add rollback timestamp to EditFileRetry"
+        git add .github/workflows/EditFileForRetry
+        git commit -m "Add rollback timestamp to EditFileForRetry"
         git push origin develop_yl_ga
 
     - name: Create Pull Request
