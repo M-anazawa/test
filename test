@@ -1,46 +1,79 @@
-name: Rollback Branch Management
+// ↓↓↓本番環境のみ適用する Start
+if (stage.endsWith('Prd')) {
 
-on:
-  pull_request:
-    types: [closed]
-    branches:
-      - AaaPrdWebapp
-      - BbbPrdWebapp
+  // Create IAM Policy for RDS Snapshot
+  const rdsSnapshotPolicy = new iam.PolicyStatement({
+    effect: iam.Effect.ALLOW,
+    actions: [
+      "rds:CreateDBSnapshot",
+      "rds:DescribeDBInstances",
+      "rds:DescribeDBSnapshots"
+    ],
+    resources: ["*"],
+  });
 
-jobs:
-  manage-rollback:
-    if: github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Ensure all history is fetched
-        token: ${{ secrets.GITHUB_TOKEN }}
+  // Add RDS Snapshot Policy to CodeBuild Project
+  codeBuildProjectWebapp.addToRolePolicy(rdsSnapshotPolicy);
 
-    - name: Setup environment
-      run: |
-        MERGE_TIME=$(TZ=Asia/Tokyo date +'%Y%m%d%H%M')
-        echo "MERGE_TIME=${MERGE_TIME}" >> $GITHUB_ENV
+}
+// ↑↑↑本番環境のみ適用する End
 
-    - name: Create and push rollback branch
-      env:
-        MERGE_TIME: ${{ env.MERGE_TIME }}
-      run: |
-        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-        ROLLBACK_BRANCH="${BASE_BRANCH}-${MERGE_TIME}"
-        git checkout -b $ROLLBACK_BRANCH
-        
-        # Temporarily set git user config
-        git config user.email "no-reply@example.com"
-        git config user.name "GitHub Action"
-        
-        git push origin $ROLLBACK_BRANCH
 
-    - name: Prune old rollback branches
-      run: |
-        BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-        git fetch --prune
-        OLD_BRANCHES=$(git branch -r --sort=committerdate | grep "$BASE_BRANCH-" | head -n -5)
-        for BRANCH in $OLD_BRANCHES; do
-          git push origin --delete ${BRANCH#origin/}
-        done
+
+
+// ↓↓↓本番環境のみ適用する Start
+if (stage.endsWith('Prd')) {
+
+  // Create RDS Snapshot CodeBuild Project
+  const rdsSnapshotProject = new codebuild.Project(this, `${context.codeBuildProjectWebappName}-rds-snapshot`, {
+    projectName: `${context.codeBuildProjectWebappName}-rds-snapshot`,
+    environment: {
+      buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
+      computeType: codebuild.ComputeType.SMALL,
+    },
+    environmentVariables: {
+      RDS_INSTANCE_IDENTIFIER: {
+        value: context.rdsInstanceId,
+      },
+      SNAPSHOT_IDENTIFIER: {
+        value: `release-${context.rdsInstanceId}-\${CODEBUILD_BUILD_ID}`,
+      },
+    },
+    buildSpec: codebuild.BuildSpec.fromObject({
+      version: "0.2",
+      phases: {
+        pre_build: {
+          commands: [
+            "echo Creating RDS snapshot..."
+          ],
+        },
+        build: {
+          commands: [
+            "aws rds create-db-snapshot --db-instance-identifier $RDS_INSTANCE_IDENTIFIER --db-snapshot-identifier $SNAPSHOT_IDENTIFIER"
+          ],
+        },
+      },
+    }),
+  });
+
+}
+// ↑↑↑本番環境のみ適用する End
+
+
+// ↓↓↓本番環境のみ適用する Start
+if (stage.endsWith('Prd')) {
+
+  // Add RDS Snapshot Stage to Pipeline
+  const rdsSnapshotAction = new codepipeline.actions.CodeBuildAction({
+    actionName: "RdsSnapshot",
+    project: rdsSnapshotProject,
+    input: buildOutput,
+  });
+
+  pipeline.addStage({
+    stageName: "RdsSnapshot",
+    actions: [rdsSnapshotAction],
+  });
+
+}
+// ↑↑↑本番環境のみ適用する End
