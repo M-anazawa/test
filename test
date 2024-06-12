@@ -1,5 +1,5 @@
 // ランダムな値を生成する関数
-function generateRandomString(length) {
+function generateRandomString(length: number): string {
   const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let result = '';
   for (let i = 0; i < length; i++) {
@@ -7,36 +7,3 @@ function generateRandomString(length) {
   }
   return result;
 }
-
-// RDSスナップショットプロジェクトの定義
-const rdsSnapshotProject = new codebuild.Project(this, `${context.codeBuildProjectWebappName}-rds-snapshot`, {
-  projectName: `${context.codeBuildProjectWebappName}-rds-snapshot`,
-  environment: {
-    buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
-    computeType: codebuild.ComputeType.SMALL,
-  },
-  environmentVariables: {
-    RDS_INSTANCE_IDENTIFIER: {
-      value: context.rdsInstanceId,
-    },
-    SNAPSHOT_IDENTIFIER: {
-      // タイムスタンプとランダムな文字列を組み合わせる
-      value: `snapshot-${context.rdsInstanceId.replace(/[^a-zA-Z0-9-]/g, '')}-${Date.now()}-${generateRandomString(6)}`
-    },
-  },
-  buildSpec: codebuild.BuildSpec.fromObject({
-    version: "0.2",
-    phases: {
-      pre_build: {
-        commands: [
-          "echo Creating RDS snapshot..."
-        ],
-      },
-      build: {
-        commands: [
-          "aws rds create-db-snapshot --db-instance-identifier $RDS_INSTANCE_IDENTIFIER --db-snapshot-identifier $SNAPSHOT_IDENTIFIER"
-        ],
-      },
-    },
-  }),
-});
