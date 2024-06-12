@@ -1,79 +1,42 @@
-// ↓↓↓本番環境のみ適用する Start
-if (stage.endsWith('Prd')) {
-
-  // Create IAM Policy for RDS Snapshot
-  const rdsSnapshotPolicy = new iam.PolicyStatement({
-    effect: iam.Effect.ALLOW,
-    actions: [
-      "rds:CreateDBSnapshot",
-      "rds:DescribeDBInstances",
-      "rds:DescribeDBSnapshots"
-    ],
-    resources: ["*"],
-  });
-
-  // Add RDS Snapshot Policy to CodeBuild Project
-  codeBuildProjectWebapp.addToRolePolicy(rdsSnapshotPolicy);
-
+// ランダムな値を生成する関数
+function generateRandomString(length) {
+  const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return result;
 }
-// ↑↑↑本番環境のみ適用する End
 
-
-
-
-// ↓↓↓本番環境のみ適用する Start
-if (stage.endsWith('Prd')) {
-
-  // Create RDS Snapshot CodeBuild Project
-  const rdsSnapshotProject = new codebuild.Project(this, `${context.codeBuildProjectWebappName}-rds-snapshot`, {
-    projectName: `${context.codeBuildProjectWebappName}-rds-snapshot`,
-    environment: {
-      buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
-      computeType: codebuild.ComputeType.SMALL,
+// RDSスナップショットプロジェクトの定義
+const rdsSnapshotProject = new codebuild.Project(this, `${context.codeBuildProjectWebappName}-rds-snapshot`, {
+  projectName: `${context.codeBuildProjectWebappName}-rds-snapshot`,
+  environment: {
+    buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
+    computeType: codebuild.ComputeType.SMALL,
+  },
+  environmentVariables: {
+    RDS_INSTANCE_IDENTIFIER: {
+      value: context.rdsInstanceId,
     },
-    environmentVariables: {
-      RDS_INSTANCE_IDENTIFIER: {
-        value: context.rdsInstanceId,
+    SNAPSHOT_IDENTIFIER: {
+      // タイムスタンプとランダムな文字列を組み合わせる
+      value: `snapshot-${context.rdsInstanceId.replace(/[^a-zA-Z0-9-]/g, '')}-${Date.now()}-${generateRandomString(6)}`
+    },
+  },
+  buildSpec: codebuild.BuildSpec.fromObject({
+    version: "0.2",
+    phases: {
+      pre_build: {
+        commands: [
+          "echo Creating RDS snapshot..."
+        ],
       },
-      SNAPSHOT_IDENTIFIER: {
-        value: `release-${context.rdsInstanceId}-\${CODEBUILD_BUILD_ID}`,
+      build: {
+        commands: [
+          "aws rds create-db-snapshot --db-instance-identifier $RDS_INSTANCE_IDENTIFIER --db-snapshot-identifier $SNAPSHOT_IDENTIFIER"
+        ],
       },
     },
-    buildSpec: codebuild.BuildSpec.fromObject({
-      version: "0.2",
-      phases: {
-        pre_build: {
-          commands: [
-            "echo Creating RDS snapshot..."
-          ],
-        },
-        build: {
-          commands: [
-            "aws rds create-db-snapshot --db-instance-identifier $RDS_INSTANCE_IDENTIFIER --db-snapshot-identifier $SNAPSHOT_IDENTIFIER"
-          ],
-        },
-      },
-    }),
-  });
-
-}
-// ↑↑↑本番環境のみ適用する End
-
-
-// ↓↓↓本番環境のみ適用する Start
-if (stage.endsWith('Prd')) {
-
-  // Add RDS Snapshot Stage to Pipeline
-  const rdsSnapshotAction = new codepipeline.actions.CodeBuildAction({
-    actionName: "RdsSnapshot",
-    project: rdsSnapshotProject,
-    input: buildOutput,
-  });
-
-  pipeline.addStage({
-    stageName: "RdsSnapshot",
-    actions: [rdsSnapshotAction],
-  });
-
-}
-// ↑↑↑本番環境のみ適用する End
+  }),
+});
