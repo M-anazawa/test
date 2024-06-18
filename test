@@ -1,37 +1,51 @@
-if (stage === 'AdhYdxPrd' || stage === 'AdhLdcrPrd') {
-
-  // Create RDS Read Replica
-  const readReplica = new rds.DatabaseInstanceReadReplica(this, context.rdsReadReplicaId, {
-    sourceDatabaseInstance: dbInstance,
-    vpc,
-    vpcSubnets: {
-      subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+// Create Policy Statement
+const AccessToRdsPolicyStatement = new iam.PolicyStatement({
+  effect: iam.Effect.ALLOW,
+  actions: [
+    // クラスターのリストを取得する許可を付与
+    'ecs:ListClusters',
+    // 指定したクラスターのタスク一覧を取得する許可を付与
+    'ecs:ListTasks',
+    // 指定されたタスクの詳細を取得する許可を付与
+    'ecs:DescribeTasks',
+    // RDSインスタンスに関する情報を取得する許可を付与
+    'rds:DescribeDBInstances',
+    // Session Managerセッションの指定ターゲットへの接続を開始する許可を付与
+    'ssm:StartSession',
+    // セッションマネージャーが接続を終了する許可を付与
+    'ssm:TerminateSession',
+  ],
+  resources: ['*'], // 必要に応じて制限することも検討
+  conditions: {
+    "IpAddress": {
+      "aws:SourceIp": [
+        "18.176.99.184",
+        "35.78.61.200"
+      ]
     },
-    instanceType: ec2.InstanceType.of(
-      ec2.InstanceClass.M6G,
-      ec2.InstanceSize.LARGE,
-    ),
-    caCertificate: rds.CaCertificate.RDS_CA_RDS4096_G1,
-    storageEncrypted: true,
-    multiAz: true,
-    subnetGroup: rdsSubnetGroup,
-    maxAllocatedStorage: 1000,
-    autoMinorVersionUpgrade: true,
-    removalPolicy: cdk.RemovalPolicy.DESTROY,
-    deletionProtection: false,
-    publiclyAccessible: false,
-    securityGroups: [rdsSecurityGroup],
-  });
+    // RDSのRoleタグがReadReplicaであるリソースのみに制限
+    "StringEquals": {
+      "rds:ResourceTag/Role": "ReadReplica"
+    }
+  }
+});
 
-  // タグを追加
-  cdk.Tags.of(readReplica).add('Role', 'ReadReplica');
+// Create IAM Group
+const AccessToRdsGroup = new iam.Group(this, 'AdhCtrlUserGroupAccessToRds001', {
+  groupName: 'AdhCtrlUserGroupAccessToRds001'
+});
 
-  new cdk.CfnOutput(this, context.readReplicaEndpointId, {
-    value: readReplica.instanceEndpoint.hostname,
-  });
+// Create Policy and Attach Group
+const AccessToRdsPolicy = new iam.Policy(this, 'AdhCtrlPolicyAccessToRds001', {
+  policyName: 'AdhCtrlPolicyAccessToRds001',
+  statements: [AccessToRdsPolicyStatement]
+});
+AccessToRdsPolicy.attachToGroup(AccessToRdsGroup);
 
-} else {
+// Create IAM User
+const AccessToRdsUser = new iam.User(this, 'AdhCtrlUser002', {
+  userName: 'AdhCtrlUser002'
+});
 
-  console.log(`Skipping Read Replica creation for stage: ${stage}`);
-
-}
+// Add IAM Users to Group
+AccessToRdsGroup.addUser(AccessToRdsUser);
