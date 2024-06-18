@@ -1,3 +1,9 @@
+// リードレプリカのARNを取得して、このリストに追加
+const readReplicaArns = [
+  'arn:aws:rds:ap-northeast-1:735251715456:db:read-replica-1', // 実際のリードレプリカARNを記入
+  'arn:aws:rds:ap-northeast-1:735251715456:db:read-replica-2'  // 複数ある場合、追加
+];
+
 // Create Policy Statement
 const AccessToRdsPolicyStatement = new iam.PolicyStatement({
   effect: iam.Effect.ALLOW,
@@ -15,17 +21,15 @@ const AccessToRdsPolicyStatement = new iam.PolicyStatement({
     // セッションマネージャーが接続を終了する許可を付与
     'ssm:TerminateSession',
   ],
-  resources: ['*'], // 必要に応じて制限することも検討
+  resources: [
+    ...readReplicaArns, // リードレプリカのARNをリストに追加
+  ],
   conditions: {
     "IpAddress": {
       "aws:SourceIp": [
         "18.176.99.184",
         "35.78.61.200"
       ]
-    },
-    // RDSのRoleタグがReadReplicaであるリソースのみに制限
-    "StringEquals": {
-      "rds:ResourceTag/Role": "ReadReplica"
     }
   }
 });
