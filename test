@@ -1,50 +1,35 @@
-import { v4 as uuidv4 } from 'uuid';  // uuidモジュールをインポート
+if (stage === 'AdhYdxPrd' || stage === 'AdhLdcrPrd') {
 
-// Create RDS Snapshot CodeBuild Project
-const rdsSnapshotProject = new codebuild.Project(this, `${context.codeBuildProjectWebappName}RdsSnapshot`, {
-  projectName: `${context.codeBuildProjectWebappName}RdsSnapshot`,
-  environment: {
-    buildImage: codebuild.LinuxBuildImage.STANDARD_5_0,
-    computeType: codebuild.ComputeType.SMALL,
-  },
-  environmentVariables: {
-    RDS_INSTANCE_IDENTIFIER: {
-      value: context.rdsInstanceId,
+  // Create RDS Read Replica
+  const readReplica = new rds.DatabaseInstanceReadReplica(this, context.rdsReadReplicaId, {
+    sourceDatabaseInstance: dbInstance,
+    vpc,
+    vpcSubnets: {
+      subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
     },
-    UUID: {
-      value: uuidv4(),  // JavaScriptでUUIDを生成
-    },
-    TIMESTAMP: {
-      value: String(Date.now()),
-    },
-    SNAPSHOT_IDENTIFIER: {
-      value: `release-${context.rdsInstanceId.replace(/[^a-zA-Z0-9-]/g, '')}-${uuidv4()}-${Date.now()}`,
-    },
-  },
-  buildSpec: codebuild.BuildSpec.fromObject({
-    version: "0.2",
-    phases: {
-      install: {
-        commands: [
-          "echo Installing dependencies...",
-          "npm install uuid",  // uuidモジュールをインストール
-        ],
-      },
-      pre_build: {
-        commands: [
-          "echo Pre-build phase...",
-          "UUID=$(node -e \"console.log(require('uuid').v4())\")",  // JavaScriptを使ってUUIDを生成
-          "TIMESTAMP=$(date +%s)",
-          "export SNAPSHOT_IDENTIFIER=\"snapshot-${RDS_INSTANCE_IDENTIFIER}-${UUID}-${TIMESTAMP}\"",
-          "echo Using snapshot identifier: $SNAPSHOT_IDENTIFIER",
-        ],
-      },
-      build: {
-        commands: [
-          "echo Creating RDS snapshot...",
-          "aws rds create-db-snapshot --db-instance-identifier $RDS_INSTANCE_IDENTIFIER --db-snapshot-identifier $SNAPSHOT_IDENTIFIER",
-        ],
-      },
-    },
-  }),
-});
+    instanceType: ec2.InstanceType.of(
+      ec2.InstanceClass.M6G,
+      ec2.InstanceSize.LARGE,
+    ),
+    caCertificate: rds.CaCertificate.RDS_CA_RDS4096_G1,
+    storageEncrypted: true,
+    multiAz: true,
+    subnetGroup: rdsSubnetGroup,
+    allocatedStorage: 100,
+    maxAllocatedStorage: 1000,
+    autoMinorVersionUpgrade: true,
+    removalPolicy: cdk.RemovalPolicy.DESTROY,
+    deletionProtection: false,
+    publiclyAccessible: false,
+    securityGroups: [rdsSecurityGroup],
+  });
+
+  new cdk.CfnOutput(this, context.readReplicaEndpointId, {
+    value: readReplica.instanceEndpoint.hostname,
+  });
+
+} else {
+
+  console.log(`Skipping Read Replica creation for stage: ${stage}`);
+
+}
