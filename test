@@ -15,7 +15,6 @@ if (stage === 'AdhYdxPrd' || stage === 'AdhLdcrPrd') {
     storageEncrypted: true,
     multiAz: true,
     subnetGroup: rdsSubnetGroup,
-    allocatedStorage: 100,
     maxAllocatedStorage: 1000,
     autoMinorVersionUpgrade: true,
     removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -23,6 +22,9 @@ if (stage === 'AdhYdxPrd' || stage === 'AdhLdcrPrd') {
     publiclyAccessible: false,
     securityGroups: [rdsSecurityGroup],
   });
+
+  // タグを追加
+  cdk.Tags.of(readReplica).add('Role', 'ReadReplica');
 
   new cdk.CfnOutput(this, context.readReplicaEndpointId, {
     value: readReplica.instanceEndpoint.hostname,
