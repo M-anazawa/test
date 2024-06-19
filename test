@@ -1,55 +1,128 @@
-// リードレプリカのARNを取得して、このリストに追加
-const readReplicaArns = [
-  'arn:aws:rds:ap-northeast-1:735251715456:db:read-replica-1', // 実際のリードレプリカARNを記入
-  'arn:aws:rds:ap-northeast-1:735251715456:db:read-replica-2'  // 複数ある場合、追加
-];
+#!/bin/bash
 
-// Create Policy Statement
-const AccessToRdsPolicyStatement = new iam.PolicyStatement({
-  effect: iam.Effect.ALLOW,
-  actions: [
-    // クラスターのリストを取得する許可を付与
-    'ecs:ListClusters',
-    // 指定したクラスターのタスク一覧を取得する許可を付与
-    'ecs:ListTasks',
-    // 指定されたタスクの詳細を取得する許可を付与
-    'ecs:DescribeTasks',
-    // RDSインスタンスに関する情報を取得する許可を付与
-    'rds:DescribeDBInstances',
-    // Session Managerセッションの指定ターゲットへの接続を開始する許可を付与
-    'ssm:StartSession',
-    // セッションマネージャーが接続を終了する許可を付与
-    'ssm:TerminateSession',
-  ],
-  resources: [
-    ...readReplicaArns, // リードレプリカのARNをリストに追加
-  ],
-  conditions: {
-    "IpAddress": {
-      "aws:SourceIp": [
-        "18.176.99.184",
-        "35.78.61.200"
-      ]
-    }
-  }
-});
+# ログファイルのパスを設定
+#LOGFILE="script_log.txt"
 
-// Create IAM Group
-const AccessToRdsGroup = new iam.Group(this, 'AdhCtrlUserGroupAccessToRds001', {
-  groupName: 'AdhCtrlUserGroupAccessToRds001'
-});
+# 環境名のリストを定義
+declare -A environments
+environments=(
+  [1]="AdhYdxDev"
+  [2]="AdhYdxStg"
+  [3]="AdhYdxPrd"
+  [4]="AdhLdcrDev"
+  [5]="AdhLdcrStg"
+  [6]="AdhLdcrPrd"
+)
 
-// Create Policy and Attach Group
-const AccessToRdsPolicy = new iam.Policy(this, 'AdhCtrlPolicyAccessToRds001', {
-  policyName: 'AdhCtrlPolicyAccessToRds001',
-  statements: [AccessToRdsPolicyStatement]
-});
-AccessToRdsPolicy.attachToGroup(AccessToRdsGroup);
+#{
+# 現在の日時をログに記録
+# echo "スクリプト実行開始: $(date)"
 
-// Create IAM User
-const AccessToRdsUser = new iam.User(this, 'AdhCtrlUser002', {
-  userName: 'AdhCtrlUser002'
-});
+while true; do
+  # 画面に環境リストを表示
+  echo ""
+  echo "### 環境リスト ###"
+  for i in ${!environments[@]}; do
+    echo "$i - ${environments[$i]}"
+  done
+  echo ""
 
-// Add IAM Users to Group
-AccessToRdsGroup.addUser(AccessToRdsUser);
+  # ユーザーから環境番号の入力を受け取る
+  read -p "作業対象を環境リストから選択してください（1-6の番号を入力。終了するにはEnterまたはCtrl+C）: " ENVIRONMENT_NUMBER
+
+  # ユーザーがCtrl+Cでスクリプトを終了できるようにする
+  if [ -z "$ENVIRONMENT_NUMBER" ]; then
+    echo "スクリプトを終了します。"
+    exit 0
+  fi
+
+  # 環境番号が有効範囲にあるかチェック
+  if [[ "$ENVIRONMENT_NUMBER" =~ ^[1-6]$ ]]; then
+    break
+  else
+    echo "有効な番号を入力してください。"
+  fi
+done
+
+# 入力された番号に対応する環境名を取得
+ENVIRONMENT_NAME="${environments[$ENVIRONMENT_NUMBER]}"
+echo "環境名は「${ENVIRONMENT_NAME}」です"
+
+# AWS ECSクラスタのARNを取得
+CLUSTER_ARNS=$(aws ecs list-clusters --region ap-northeast-1 --query "clusterArns" --output text)
+
+# 環境名に一致するECSクラスタのARNを取得
+for cluster_arn in $CLUSTER_ARNS
+do
+  # クラスタ名を取得
+  cluster_name=$(basename "$cluster_arn")
+
+  # クラスタ名が環境名に含まれているかチェック
+  if [[ "$cluster_name" == *"$ENVIRONMENT_NAME"* ]]; then
+    CLUSTER_ARN="$cluster_arn"
+    break
+  fi
+done
+echo "クラスタARNは「${CLUSTER_ARN}」です"
+
+CLUSTER_NAME=$(basename "$CLUSTER_ARN")
+echo "クラスタ名は「${CLUSTER_NAME}」です"
+
+# AWS ECSタスクのARNを取得
+TASK_ARN=$(aws ecs list-tasks --region ap-northeast-1 --cluster "$CLUSTER_ARN" --query 'taskArns[0]' --output text)
+echo "タスクARNは「${TASK_ARN}」です"
+
+TASK_ID=$(echo "$TASK_ARN" | awk -F'/' '{print $NF}')
+echo "タスクIDは「${TASK_ID}」です"
+
+# コンテナ名に含まれる文字列を指定
+CONTAINER_NAME_PATTERN="Webapp"
+
+# コンテナのランタイムIDを取得
+CONTAINER_ID=$(aws ecs describe-tasks --region ap-northeast-1 --cluster "$CLUSTER_ARN" --tasks "$TASK_ARN" --query "tasks[0].containers[?contains(name, '$CONTAINER_NAME_PATTERN')].runtimeId" --output text)
+echo "コンテナのランタイムIDは「${CONTAINER_ID}」です"
+
+# RDSインスタンスのARNを取得
+RDS_ARNS=$(aws rds describe-db-instances --region ap-northeast-1 --query 'DBInstances[*].[DBInstanceIdentifier,DBInstanceArn]' --output text)
+
+# 環境名に一致するRDSリードレプリカのエンドポイントを取得するためにARNをチェック
+DB_HOST=""
+for arn_pair in $RDS_ARNS
+do
+  identifier=$(echo "$arn_pair" | awk '{print $1}')
+  arn=$(echo "$arn_pair" | awk '{print $2}')
+
+  # RDSインスタンスのタグを取得
+  tags=$(aws rds list-tags-for-resource --resource-name $arn --region ap-northeast-1 --query 'TagList[?Key==`Role` && Value==`ReadReplica`]' --output text)
+
+  # タグが一致する場合、エンドポイントを取得
+  if [[ -n "$tags" ]]; then
+    endpoint=$(aws rds describe-db-instances --db-instance-identifier $identifier --region ap-northeast-1 --query 'DBInstances[0].Endpoint.Address' --output text)
+    lowercase_endpoint=$(echo "$endpoint" | tr '[:upper:]' '[:lower:]')
+    lowercase_environment_name=$(echo "$ENVIRONMENT_NAME" | tr '[:upper:]' '[:lower:]')
+    if [[ "$lowercase_endpoint" == *"$lowercase_environment_name"* ]]; then
+      DB_HOST="$endpoint"
+      echo "RDSリードレプリカエンドポイントは「${DB_HOST}」です"
+      break
+    fi
+  fi
+done
+
+# データベースポートの設定
+LOCAL_DB_PORT="15432"
+REMOTE_DB_PORT="5432"
+
+# ターゲットの設定
+TARGET="${CLUSTER_NAME}_${TASK_ID}_${CONTAINER_ID}"
+echo "ターゲットは「${TARGET}」です"
+
+# パラメータの設定
+PARAMETERS="{\"host\":[\"${DB_HOST}\"],\"portNumber\":[\"${REMOTE_DB_PORT}\"], \"localPortNumber\":[\"${LOCAL_DB_PORT}\"]}"
+echo "パラメータは「${PARAMETERS}」です"
+
+# AWS Systems Manager Session Managerを使用してポートフォワーディングセッションを開始
+aws ssm start-session --region ap-northeast-1 --target "$TARGET" --document-name "AWS-StartPortForwardingSessionToRemoteHost" --parameters "$PARAMETERS"
+
+# スクリプト実行終了のログ
+# echo "スクリプト実行終了: $(date)"
+#} | tee -a "$LOGFILE"
