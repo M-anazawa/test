@@ -55,8 +55,6 @@ pg_dump -U <username> -h <hostname> -p <port> -d <database> -F c -f /path/to/bac
 -d <database>: バックアップするデータベース名。
 -F c: カスタム形式でバックアップ。
 -f /path/to/backup/file.dump: バックアップファイルの保存場所。
-pg_basebackupを使用したバックアップ:
-pg_basebackupは、PostgreSQLのインスタンス全体を物理バックアップするためのツールです。
 
 pg_basebackupを使用したバックアップ:
 pg_basebackupは、PostgreSQLのインスタンス全体を物理バックアップするためのツールです。
