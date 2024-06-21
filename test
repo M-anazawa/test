@@ -58,6 +58,9 @@ pg_dump -U <username> -h <hostname> -p <port> -d <database> -F c -f /path/to/bac
 pg_basebackupを使用したバックアップ:
 pg_basebackupは、PostgreSQLのインスタンス全体を物理バックアップするためのツールです。
 
+pg_basebackupを使用したバックアップ:
+pg_basebackupは、PostgreSQLのインスタンス全体を物理バックアップするためのツールです。
+
 コマンド例:
 -------------------------------------
 pg_basebackup -U <username> -h <hostname> -D /path/to/backup/dir -Ft -z -P
@@ -69,6 +72,7 @@ pg_basebackup -U <username> -h <hostname> -D /path/to/backup/dir -Ft -z -P
 -Ft: tar形式でバックアップ。
 -z: バックアップを圧縮。
 -P: プログレスを表示。
+
 差分の比較方法
 pg_dumpの出力をテキストとして比較:
 バックアップをテキスト形式で出力し、diffコマンドを使用して比較します。
@@ -87,6 +91,7 @@ diff /path/to/backup1.sql /path/to/backup2.sql > /path/to/diff_output.txt
 オプション:
 -s: スキーマのみをバックアップ。
 -F p: プレインテキスト形式でバックアップ。
+
 pg_dumpのカスタムフォーマットを比較:
 バックアップをカスタム形式で取得し、pg_restoreでテーブルデータをテキスト出力して比較します。
 
@@ -120,6 +125,7 @@ pg_comparator -U <username> -h <hostname> -d <database> -o /path/to/diff_output.
 バックアップと差分比較を行う際には、十分なストレージと適切な権限を確保してください。
 pg_dumpやpg_basebackupを使用するには、PostgreSQLサーバーへのアクセス権限が必要です。
 差分比較はテキスト比較のため、データ量が多い場合は時間がかかる可能性があります。
+
 以上の手順で、PostgreSQLのバックアップと差分比較を行うことができます。
 
 
