@@ -1,253 +1,45 @@
-SSMポートフォワードはクライアントから踏み台（ECS Fargate）までの通信を暗号化しますが、ECS FargateからRDSまでの通信は暗号化されません。
-クライアントとRDS間のSSL/TLS接続を有効にすることで、ECS FargateからRDSまでの通信も暗号化され、全体として強固なセキュリティが確保されます。
+本日のL/Y本番リリースは、次の工程・役割で宜しいでしょうか？
 
-◾️クライアント側でのSSL/TLS設定
-  PostgreSQLのSSL接続設定:
+◾️事前準備
+・フロントYDXリリース用プルリク作成(マージ先AdhYdxPrdS3) 実施者:辻
 
-    証明書のダウンロード:
-    RDS用のCA証明書をAWSからダウンロードします。
-    https://docs.aws.amazon.com/ja_jp/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html#UsingWithRDS.SSL.Using
-    https://docs.aws.amazon.com/ja_jp/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL-certificate-rotation.html#UsingWithRDS.SSL-certificate-rotation-server-cert-rotation
-    -------------------------------------
-    curl -o rds-ca-rsa2048-g1 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
-    -------------------------------------
+・フロントLDCRリリース用プルリク作成(マージ先AdhLdcrPrdS3) 実施者:辻
 
-    PostgreSQL CLIでの接続:
-    -------------------------------------
-    psql "host=mydbinstance.123456789012.us-east-1.rds.amazonaws.com port=25432 dbname=mydatabase user=myuser password=mypassword sslmode=verify-full sslrootcert=/path/to/rds-ca-2019-root.pem"
-    -------------------------------------
-    設定説明:
-	  •	sslmode=verify-full : サーバーの証明書を検証します。
-	  •	sslrootcert : ダウンロードしたCA証明書を指定します。
+◾️13時YDX本番作業開始
 
-    Pythonでの接続例:
-    -------------------------------------
-    import psycopg2
+1. バックエンドパイプライン構築　実施者:穴澤
 
-    conn = psycopg2.connect(
-        dbname='mydatabase',
-        user='myuser',
-        password='mypassword',
-        host='mydbinstance.123456789012.us-east-1.rds.amazonaws.com',
-        port='25432',
-        sslmode='verify-full',
-        sslrootcert='/path/to/rds-ca-2019-root.pem'
-    )
-    -------------------------------------
+2. バックエンドリリース用プルリク作成(マージ先AdhYdxPrdWebapp) 　実施者:川上
 
+3. バックエンドパイプライン起動(プルリク承認、マージ)　実施者:穴澤
 
+4. バックエンドデプロイ完了後、フロントパイプライン起動(プルリク承認、マージ)　実施者:穴澤
 
-RDSの証明書更新において、アプリ側で新しいCA証明書を先にダウンロードし、それを使用してアクセスするように設定変更を行う際に、重要なポイントは以下の通りです。
+5. フロントデプロイ完了後、動作確認
 
-RDSの証明書更新とCA証明書の関係
+◾️14時LDCR本番作業開始
 
-　CA証明書の役割:
-　**CA証明書（Certificate Authority証明書）**は、RDSインスタンスが提供するSSL/TLS証明書を信頼するために使用されます。CAはサーバー証明書を発行し、サーバー証明書が信頼できるものであることを証明します。
+1. バックエンドパイプライン構築　実施者:穴澤　※YDX動作確認完了を待たずに時間になったら開始する
 
-　RDSの証明書更新:
-　RDSインスタンスのSSL/TLS証明書の有効期限が切れる前に、AWSは新しい証明書を発行します。この新しい証明書は、新しいCA証明書によって署名されています。
+2. バックエンドリリース用プルリク作成(マージ先AdhLdcrPrdWebapp) 　実施者:川上
 
-　アプリケーションの設定変更:
-　アプリケーションは、新しいCA証明書を事前にダウンロードして設定することで、新しい証明書の有効性を確認できます。これにより、証明書の切り替えがシームレスに行われ、ダウンタイムや接続エラーを防ぐことができます。
+3. バックエンドパイプライン起動(プルリク承認、マージ)　実施者:穴澤
 
-新しいCA証明書の適用と既存サーバー証明書の有効性
-　新しいCA証明書で既存のサーバ証明書を有効と判断されるか
+4. バックエンドデプロイ完了後、フロントパイプライン起動(プルリク承認、マージ)　実施者:穴澤
 
-　既存のサーバ証明書の有効性:
-　新しいCA証明書をアプリケーションに設定しても、既存のRDSインスタンスがまだ旧CAによって署名されたサーバ証明書を使用している場合、そのサーバ証明書は新しいCA証明書では信頼されません。新しいCA証明書は新しいサーバ証明書を信頼するために使用されるものであり、旧CA証明書によって署名されたサーバ証明書には適用されません。
+5. フロントデプロイ完了後、動作確認
 
-　両方のCA証明書の利用:
-　一時的に、アプリケーションに両方のCA証明書（旧CA証明書と新CA証明書）を設定して、既存のサーバ証明書と新しいサーバ証明書の両方をサポートすることができます。これにより、RDSの証明書が切り替わった際にも、接続が途切れずに継続されます。
+◾️切り戻し
 
-実際の設定手順
-　新しいCA証明書のダウンロード:
-　AWSから新しいCA証明書をダウンロードします。これは通常、RDSの更新スケジュールに従って通知されます。
-　例:
-　-------------------------------------
-  curl -o new-rds-ca.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
-　-------------------------------------
+1. 前回リリースバージョンでバックエンド用プルリク作成(マージ先AdhYdxPrdWebapp or AdhLdcrPrdWebapp) 実施者:川上
 
- アプリケーションの設定変更:
- アプリケーションの設定を変更して、新しいCA証明書を参照するようにします。この際、旧CA証明書を引き続き保持し、両方を参照するように設定することが推奨されます。
- 例（PostgreSQLの場合）:
- -------------------------------------
- psql "host=mydbinstance.123456789012.us-east-1.rds.amazonaws.com port=5432 dbname=mydatabase user=myuser password=mypassword sslrootcert=/path/to/new-rds-ca.pem"
- -------------------------------------
+1. 前回リリースバージョンでフロント用プルリク作成(マージ先AdhYdxPrdS3 or AdhLdcrPrdS3) 実施者:辻
 
- アプリケーションのテスト:
- 設定変更後、アプリケーションが正常に接続できることを確認します。新しいCA証明書を使用しても、接続が維持されることをテストします。
+2. バックエンドパイプライン起動(プルリク承認、マージ)　実施者:穴澤
 
- RDS証明書の更新:
- AWSがRDSインスタンスのサーバ証明書を更新するタイミングに合わせて、アプリケーション側での準備が完了していることを確認します。
+3. バックエンドデプロイ完了後、フロントパイプライン起動(プルリク承認、マージ)　実施者:穴澤
 
- 旧CA証明書の削除:
- RDSのサーバ証明書が新しいCA証明書で発行されたものに完全に切り替わったことを確認した後、旧CA証明書をアプリケーションの設定から削除します。
+4. フロントデプロイ完了後、動作確認
 
-具体的な例
- 以下に、具体的な手順を示します。
-
- 新旧CA証明書をダウンロード:
- -------------------------------------
- # 旧CA証明書（例: rds-ca-2019）
- curl -o rds-ca-2019.pem https://s3.amazonaws.com/rds-downloads/rds-ca-2019-root.pem
- # 新CA証明書（例: rds-ca-2022）
- curl -o rds-ca-2022.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
- -------------------------------------
-
- アプリケーションの設定を新旧両方のCA証明書に対応させる:
- PostgreSQL CLI:
- -------------------------------------
- psql "host=mydbinstance.123456789012.us-east-1.rds.amazonaws.com port=5432 dbname=mydatabase user=myuser password=mypassword sslrootcert=/path/to/rds-ca-2019.pem sslrootcert=/path/to/rds-ca-2022.pem"
- -------------------------------------
-
- Python（psycopg2）:
- -------------------------------------
- import psycopg2
-
- conn = psycopg2.connect(
-     dbname='mydatabase',
-     user='myuser',
-     password='mypassword',
-     host='mydbinstance.123456789012.us-east-1.rds.amazonaws.com',
-     port='5432',
-     sslrootcert='/path/to/rds-ca-2019.pem:/path/to/rds-ca-2022.pem'
- )
- -------------------------------------
-
-アプリケーションのテスト:
-設定変更後、アプリケーションが正常に接続できることを確認します。
-
-RDS証明書更新後の確認:
-RDSのサーバ証明書が新しいCA証明書で発行されたものに切り替わったことを確認し、アプリケーションの動作に問題がないかチェックします。
-
-旧CA証明書の削除:
-確認が完了したら、旧CA証明書をアプリケーションの設定から削除します。
-
-まとめ
-新しいCA証明書を設定: 新しいCA証明書をアプリケーションに設定し、両方の証明書を一時的にサポートすることで、証明書更新時のトラブルを防ぎます。
-RDS証明書の更新タイミングに注意: 新しいサーバ証明書が発行されると、新CA証明書が有効になりますが、旧CA証明書では認証が失敗します。
-切り替え後の確認: RDS証明書が新CA証明書で署名されたものに更新された後に、旧CA証明書を削除します。
-
-これにより、証明書の更新時に接続の問題を回避し、シームレスに切り替えを行うことができます。
-
-
-
-
-
-
-PostgreSQLのバックアップを取得し、差分を比較する方法について、以下に手順をまとめます。
-
-バックアップの取得方法
-pg_dumpを使用したバックアップ:
-pg_dumpは、単一のデータベースのバックアップを取る。PostgreSQLのデータベース全体や特定のスキーマ、テーブルをバックアップするためのツールです。
-
-コマンド例:
--------------------------------------
-pg_dump -U <username> -h <hostname> -p <port> -d <database> -F c -f /path/to/backup/file.dump
--------------------------------------
-オプション:
--U <username>: PostgreSQLのユーザー名。
--h <hostname>: データベースホスト名。
--p <port>: データベースのポート番号。
--d <database>: バックアップするデータベース名。
--F c: カスタム形式でバックアップ。
--f /path/to/backup/file.dump: バックアップファイルの保存場所。
-
-pg_dumpallを使用したバックアップ:
-PostgreSQLサーバ全体のバックアップを取るために使用されます。すべてのデータベース、グローバルオブジェクト（ユーザー、ロール、テーブルスペースなど）を含むバックアップが作成されます。
-
-コマンド例:
--------------------------------------
-pg_dumpall -U myuser -h myhost -f backup_$(date +"%Y%m%d_%H%M%S").sql
--------------------------------------
-オプション:
--U：ユーザー名
--h：ホスト
--f：出力ファイル
-
-リストア方法
-コマンド例:
--------------------------------------
-psql -U myuser -h myhost -f backup.sql
--------------------------------------
-オプション:
--U：リストアを実行するユーザー名
--h：リストア先のホスト名
--f：バックアップファイルのパス
-
-
-
-
-
-pg_basebackupを使用したバックアップ:
-pg_basebackupは、PostgreSQLのインスタンス全体を物理バックアップするためのツールです。
-
-コマンド例:
--------------------------------------
-pg_basebackup -U <username> -h <hostname> -D /path/to/backup/dir -Ft -z -P
--------------------------------------
-オプション:
--U <username>: PostgreSQLのユーザー名。
--h <hostname>: データベースホスト名。
--D /path/to/backup/dir: バックアップの保存先ディレクトリ。
--Ft: tar形式でバックアップ。
--z: バックアップを圧縮。
--P: プログレスを表示。
-
-差分の比較方法
-pg_dumpの出力をテキストとして比較:
-バックアップをテキスト形式で出力し、diffコマンドを使用して比較します。
-
-バックアップの取得:
--------------------------------------
-pg_dump -U <username> -h <hostname> -p <port> -d <database> -s -F p > /path/to/backup1.sql
-# リードレプリカ追加後に再度バックアップ
-pg_dump -U <username> -h <hostname> -p <port> -d <database> -s -F p > /path/to/backup2.sql
--------------------------------------
-
-diffを使用した比較:
--------------------------------------
-diff /path/to/backup1.sql /path/to/backup2.sql > /path/to/diff_output.txt
--------------------------------------
-オプション:
--s: スキーマのみをバックアップ。
--F p: プレインテキスト形式でバックアップ。
-
-pg_dumpのカスタムフォーマットを比較:
-バックアップをカスタム形式で取得し、pg_restoreでテーブルデータをテキスト出力して比較します。
-
-バックアップの取得:
--------------------------------------
-pg_dump -U <username> -h <hostname> -p <port> -d <database> -F c -f /path/to/backup1.dump
-# リードレプリカ追加後に再度バックアップ
-pg_dump -U <username> -h <hostname> -p <port> -d <database> -F c -f /path/to/backup2.dump
--------------------------------------
-
-pg_restoreを使用したテーブルデータのテキスト出力:
--------------------------------------
-pg_restore -U <username> -h <hostname> -p <port> -d <database> -t <table_name> -f /path/to/table1.txt /path/to/backup1.dump
-pg_restore -U <username> -h <hostname> -p <port> -d <database> -t <table_name> -f /path/to/table2.txt /path/to/backup2.dump
--------------------------------------
-
-diffを使用した比較:
--------------------------------------
-diff /path/to/table1.txt /path/to/table2.txt > /path/to/diff_output.txt
--------------------------------------
-
-ツールを使用した差分比較:
-pg_comparatorなどのツールを使用して、データベース間の差分を詳細に比較することもできます。
-
-pg_comparatorの使用例:
--------------------------------------
-pg_comparator -U <username> -h <hostname> -d <database> -o /path/to/diff_output.txt
--------------------------------------
-
-注意事項
-バックアップと差分比較を行う際には、十分なストレージと適切な権限を確保してください。
-pg_dumpやpg_basebackupを使用するには、PostgreSQLサーバーへのアクセス権限が必要です。
-差分比較はテキスト比較のため、データ量が多い場合は時間がかかる可能性があります。
-
-以上の手順で、PostgreSQLのバックアップと差分比較を行うことができます。
-
-
+※切り戻しの際、コミットID履歴の問題でプルリク作成、マージが出来ない場合は、マージ先ブランチのコミットID履歴をリセットする　実施者:穴澤
 
