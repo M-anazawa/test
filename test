@@ -1,1 +1,54 @@
-
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>システムメンテナンス中</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #556b2f;
+            color: #ffffff;
+        }
+        .container {
+            text-align: center;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+        p {
+            font-size: 18px;
+            margin: 5px 0;
+        }
+        .logo {
+            margin-bottom: 20px;
+        }
+        .logo img {
+            max-width: 150px;
+            height: auto;
+        }
+        .copyright {
+            font-size: 14px;
+            margin-top: 20px;
+            color: #cccccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <img src="logo.png" alt="ロゴ">
+        </div>
+        <h1>ただいま、メンテナンス中です</h1>
+        <p>大変ご迷惑をおかけして申し訳ございませんが、</p>
+        <p>メンテナンス終了まで今しばらくお待ちください。</p>
+        <div class="copyright">© 2012 ********* ****, ****.</div>
+    </div>
+</body>
+</html>
