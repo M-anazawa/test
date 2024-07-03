@@ -1,54 +1,32 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>システムメンテナンス中</title>
-    <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #556b2f;
-            color: #ffffff;
-        }
-        .container {
-            text-align: center;
-        }
-        h1 {
-            font-size: 28px;
-            margin-bottom: 20px;
-        }
-        p {
-            font-size: 18px;
-            margin: 5px 0;
-        }
-        .logo {
-            margin-bottom: 20px;
-        }
-        .logo img {
-            max-width: 150px;
-            height: auto;
-        }
-        .copyright {
-            font-size: 14px;
-            margin-top: 20px;
-            color: #cccccc;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">
-            <img src="logo.png" alt="ロゴ">
-        </div>
-        <h1>ただいま、メンテナンス中です</h1>
-        <p>大変ご迷惑をおかけして申し訳ございませんが、</p>
-        <p>メンテナンス終了まで今しばらくお待ちください。</p>
-        <div class="copyright">© 2012 ********* ****, ****.</div>
-    </div>
-</body>
-</html>
+name: Deploy index.html to S3 for AAA
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_path:
+        description: 'Path to the index.html file to deploy'
+        required: true
+        default: 'maint/index.html'
+        options:
+          - 'maint/index.html'
+          - 'service/index.html'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+      with:
+        ref: maintenance
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-northeast-1
+
+    - name: Upload index.html to S3
+      run: aws s3 cp ${{ github.event.inputs.file_path }} s3://${{ secrets.S3_BUCKET_NAME }}/index.html
