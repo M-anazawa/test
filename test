@@ -1,26 +1,21 @@
-name: Deploy index.html to S3
+name: Manage S3 index.html
 
 on:
   workflow_dispatch:
     inputs:
-      file_path:
-        description: 'Path to the index.html file to deploy'
+      action:
+        description: 'Select the action to perform'
         required: true
         type: choice
         options:
-          - 'src/index.html'
-          - 'service/index.html'
+          - 'Replace with maintenance'
+          - 'Restore original'
 
 jobs:
-  deploy:
+  manage-index:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-      with:
-        ref: ${{ github.event.inputs.file_path == 'src/index.html' && 'main' || 'maintenance' }}
-
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
@@ -28,10 +23,21 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ap-northeast-1
 
-    - name: Upload index.html to S3
+    - name: Checkout maintenance branch
+      if: ${{ github.event.inputs.action == 'Replace with maintenance' }}
+      uses: actions/checkout@v2
+      with:
+        ref: maintenance
+
+    - name: Backup current index.html
+      if: ${{ github.event.inputs.action == 'Replace with maintenance' }}
+      run: aws s3 mv s3://${{ secrets.S3_BUCKET_NAME }}/index.html s3://${{ secrets.S3_BUCKET_NAME }}/original-index.html
+
+    - name: Upload new index.html
+      if: ${{ github.event.inputs.action == 'Replace with maintenance' }}
+      run: aws s3 cp maint/index.html s3://${{ secrets.S3_BUCKET_NAME }}/index.html
+
+    - name: Restore original index.html
+      if: ${{ github.event.inputs.action == 'Restore original' }}
       run: |
-        if [ "${{ github.event.inputs.file_path }}" == "src/index.html" ]; then
-          aws s3 cp src/index.html s3://${{ secrets.S3_BUCKET_NAME }}/index.html
-        else
-          aws s3 cp service/index.html s3://${{ secrets.S3_BUCKET_NAME }}/index.html
-        fi
+        aws s3 mv s3://${{ secrets.S3_BUCKET_NAME }}/original-index.html s3://${{ secrets.S3_BUCKET_NAME }}/index.html
