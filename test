@@ -1,43 +1,53 @@
-name: Manage S3 index.html
+// Create RDS SubnetGroup
+const rdsSubnetGroup = new rds.SubnetGroup(this, context.rdsSubnetGroupId, {
+  vpc,
+  description: 'Subnet Group for RDS',
+  subnetGroupName: context.rdsSubnetGroupId,
+  vpcSubnets: {
+    subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+  },
+});
 
-on:
-  workflow_dispatch:
-    inputs:
-      action:
-        description: 'Select the action to perform'
-        required: true
-        type: choice
-        options:
-          - 'Replace with maintenance'
-          - 'Restore original'
+// Define the DBSnapshotIdentifier
+const snapshotIdentifier = 'your-snapshot-identifier'; // ここにスナップショットIDを指定します
 
-jobs:
-  manage-index:
-    runs-on: ubuntu-latest
+// Create RDS Instance from Snapshot
+const dbInstance = new rds.DatabaseInstanceFromSnapshot(this, context.rdsDatabaseInstanceId, {
+  vpc,
+  vpcSubnets: {
+    subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+  },
+  snapshotIdentifier: snapshotIdentifier,
+  engine: rds.DatabaseInstanceEngine.postgres({
+    version: rds.PostgresEngineVersion.VER_14_9,
+  }),
+  instanceType: ec2.InstanceType.of(
+    ec2.InstanceClass.BURSTABLE3,
+    ec2.InstanceSize.LARGE,
+  ),
+  caCertificate: rds.CaCertificate.RDS_CA_RDS4096_G1,
+  storageEncrypted: true,
+  credentials: rds.Credentials.fromGeneratedSecret('postgres'),
+  multiAz: true,
+  subnetGroup: rdsSubnetGroup,
+  allocatedStorage: 100,
+  maxAllocatedStorage: 1000,
+  allowMajorVersionUpgrade: false,
+  autoMinorVersionUpgrade: true,
+  backupRetention: cdk.Duration.days(7),
+  deleteAutomatedBackups: true,
+  removalPolicy: cdk.RemovalPolicy.DESTROY,
+  deletionProtection: false,
+  publiclyAccessible: false,
+  securityGroups: [rdsSecurityGroup],
+});
 
-    steps:
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ap-northeast-1
+dbInstance.connections.allowFrom(ec2Instance, ec2.Port.tcp(5432));
 
-    - name: Checkout maintenance branch
-      if: ${{ github.event.inputs.action == 'Replace with maintenance' }}
-      uses: actions/checkout@v2
-      with:
-        ref: maintenance
+new cdk.CfnOutput(this, context.dbEndpointId, {
+  value: dbInstance.instanceEndpoint.hostname,
+});
 
-    - name: Backup current index.html
-      if: ${{ github.event.inputs.action == 'Replace with maintenance' }}
-      run: aws s3 mv s3://${{ secrets.S3_BUCKET_NAME }}/index.html s3://${{ secrets.S3_BUCKET_NAME }}/original-index.html
-
-    - name: Upload new index.html
-      if: ${{ github.event.inputs.action == 'Replace with maintenance' }}
-      run: aws s3 cp maint/index.html s3://${{ secrets.S3_BUCKET_NAME }}/index.html
-
-    - name: Restore original index.html
-      if: ${{ github.event.inputs.action == 'Restore original' }}
-      run: |
-        aws s3 mv s3://${{ secrets.S3_BUCKET_NAME }}/original-index.html s3://${{ secrets.S3_BUCKET_NAME }}/index.html
+new cdk.CfnOutput(this, context.secretNameId, {
+  value: dbInstance.secret?.secretName!,
+});
