@@ -1,37 +1,22 @@
-// Create RDS SubnetGroup
-const rdsSubnetGroup = new rds.SubnetGroup(this, context.rdsSubnetGroupId, {
-  vpc,
-  description: 'Subnet Group for RDS',
-  subnetGroupName: context.rdsSubnetGroupId,
-  vpcSubnets: {
-    subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
-  },
-});
+const multiAz = stage.endsWith('Prd') || stage.endsWith('Stg');
 
-// Define the DBSnapshotIdentifier
-const snapshotIdentifier = 'your-snapshot-identifier'; // ここにスナップショットIDを指定します
-
-// Create RDS Instance from Snapshot
-const dbInstance = new rds.DatabaseInstanceFromSnapshot(this, context.rdsDatabaseInstanceId, {
+const commonProps = {
   vpc,
   vpcSubnets: {
     subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
   },
-  snapshotIdentifier: snapshotIdentifier,
   engine: rds.DatabaseInstanceEngine.postgres({
-    version: rds.PostgresEngineVersion.VER_14_9,
+    version: rds.PostgresEngineVersion.VER_14,
   }),
   instanceType: ec2.InstanceType.of(
-    ec2.InstanceClass.BURSTABLE3,
+    ec2.InstanceClass.M6G,
     ec2.InstanceSize.LARGE,
   ),
   caCertificate: rds.CaCertificate.RDS_CA_RDS4096_G1,
   storageEncrypted: true,
-  credentials: rds.Credentials.fromGeneratedSecret('postgres'),
   multiAz: true,
   subnetGroup: rdsSubnetGroup,
-  allocatedStorage: 100,
-  maxAllocatedStorage: 1000,
+  allocatedStorage: 1000,
   allowMajorVersionUpgrade: false,
   autoMinorVersionUpgrade: true,
   backupRetention: cdk.Duration.days(7),
@@ -40,14 +25,84 @@ const dbInstance = new rds.DatabaseInstanceFromSnapshot(this, context.rdsDatabas
   deletionProtection: false,
   publiclyAccessible: false,
   securityGroups: [rdsSecurityGroup],
-});
+};
 
-dbInstance.connections.allowFrom(ec2Instance, ec2.Port.tcp(5432));
+const createDbInstance = (snapshot: boolean) => {
+  if (snapshot) {
+    return new rds.DatabaseInstanceFromSnapshot(this, context.rdsDatabaseInstanceId, {
+      ...commonProps,
+      snapshotIdentifier: context.rdsSnapshotInstanceArn,
+      credentials: rds.SnapshotCredentials.fromGeneratedSecret('postgres'),
+    });
+  } else {
+    return new rds.DatabaseInstance(this, context.rdsDatabaseInstanceId, {
+      ...commonProps,
+      credentials: rds.Credentials.fromGeneratedSecret('postgres'),
+      allocatedStorage: 100,
+      maxAllocatedStorage: 1000,
+    });
+  }
+};
 
-new cdk.CfnOutput(this, context.dbEndpointId, {
-  value: dbInstance.instanceEndpoint.hostname,
-});
+const createReadReplica = (dbInstance) => {
+  const readReplica = new rds.DatabaseInstanceReadReplica(this, context.rdsReadReplicaId, {
+    sourceDatabaseInstance: dbInstance,
+    vpc,
+    vpcSubnets: {
+      subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
+    },
+    instanceType: ec2.InstanceType.of(
+      ec2.InstanceClass.M6G,
+      ec2.InstanceSize.LARGE,
+    ),
+    caCertificate: rds.CaCertificate.RDS_CA_RDS4096_G1,
+    storageEncrypted: true,
+    multiAz: false,
+    subnetGroup: rdsSubnetGroup,
+    maxAllocatedStorage: 1000,
+    autoMinorVersionUpgrade: true,
+    removalPolicy: cdk.RemovalPolicy.DESTROY,
+    deletionProtection: false,
+    publiclyAccessible: false,
+    securityGroups: [rdsSecurityGroup],
+  });
 
-new cdk.CfnOutput(this, context.secretNameId, {
-  value: dbInstance.secret?.secretName!,
-});
+  cdk.Tags.of(readReplica).add('Role', 'ReadReplica');
+
+  new cdk.CfnOutput(this, context.readReplicaEndpointId, {
+    value: readReplica.instanceEndpoint.hostname,
+  });
+};
+
+if (stage === 'AdhYdxPrd' || stage === 'AdhLdcrPrd' || stage === 'AdhTdPrd' || stage === 'AdhTxdPrd') {
+  const dbInstance = createDbInstance(false);
+
+  new cdk.CfnOutput(this, context.dbEndpointId, {
+    value: dbInstance.instanceEndpoint.hostname,
+  });
+
+  new cdk.CfnOutput(this, context.secretNameId, {
+    value: dbInstance.secret?.secretName!,
+  });
+
+  if (stage.startsWith('AdhYdx') || stage.startsWith('AdhLdcr')) {
+    createReadReplica(dbInstance);
+  }
+
+} else {
+  const dbSnapshotInstance = createDbInstance(true);
+
+  new cdk.CfnOutput(this, context.dbEndpointId, {
+    value: dbSnapshotInstance.instanceEndpoint.hostname,
+  });
+
+  new cdk.CfnOutput(this, context.secretNameId, {
+    value: dbSnapshotInstance.secret?.secretName!,
+  });
+
+  if (stage.startsWith('AdhYdx') || stage.startsWith('AdhLdcr')) {
+    createReadReplica(dbSnapshotInstance);
+  } else {
+    console.log(`Skipping Read Replica creation for stage: ${stage}`);
+  }
+}
