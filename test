@@ -1,6 +1,6 @@
 const multiAz = stage.endsWith('Prd') || stage.endsWith('Stg');
 
-const commonProps = {
+const commonProps: rds.DatabaseInstanceProps = {
   vpc,
   vpcSubnets: {
     subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
@@ -27,7 +27,7 @@ const commonProps = {
   securityGroups: [rdsSecurityGroup],
 };
 
-const createDbInstance = (snapshot: boolean) => {
+const createDbInstance = (snapshot: boolean): rds.DatabaseInstance => {
   if (snapshot) {
     return new rds.DatabaseInstanceFromSnapshot(this, context.rdsDatabaseInstanceId, {
       ...commonProps,
@@ -44,9 +44,9 @@ const createDbInstance = (snapshot: boolean) => {
   }
 };
 
-const createReadReplica = (dbInstance) => {
+const createReadReplica = (sourceInstance: rds.DatabaseInstance) => {
   const readReplica = new rds.DatabaseInstanceReadReplica(this, context.rdsReadReplicaId, {
-    sourceDatabaseInstance: dbInstance,
+    sourceDatabaseInstance: sourceInstance,
     vpc,
     vpcSubnets: {
       subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
