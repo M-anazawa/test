@@ -1,98 +1,124 @@
-https://chatgpt.com/c/beddefe6-094f-4efd-a014-0dfbc1903101#:~:text=%E3%81%AE%E3%83%97%E3%83%A9%E3%83%B3%3A-,GitHub%E7%B5%84%E7%B9%94%E3%83%97%E3%83%A9%E3%83%B3%E7%A2%BA%E8%AA%8D%E3%83%9A%E3%83%BC%E3%82%B8,-%E2%80%BBYOUR_ORG%E3%82%92
+イベントの種類
+・ACCOUNT_SPECIFIC (アカウント固有イベント)・・・特定のAWSアカウントに直接影響を与えるイベント
+・PUBLIC (パブリックイベント)・・・複数のアカウントやAWSリージョンに影響を与える可能性があるイベント
 
+イベントのタイプ
+・issue (問題)・・・AWSサービスの障害や予期しない問題
+・accountNotification (アカウント通知)・・・特定のアカウントに関連する通知や情報
+・investigation (調査)・・・問題の原因を調査中であることの通知
+・scheduledChange (スケジュール変更)・・・計画的な変更やメンテナンス情報
 
-GitHub Actionsのステータスが「Queued」となり、ランナーがジョブをピックアップするまでに時間がかかることがあります。この問題は、GitHub Actionsの共有ランナーリソースの利用状況やネットワークの混雑など、いくつかの要因によって発生することがあります。以下に原因と改善策を示します。
-
-原因
-リソースの競合:
-
-GitHub Actionsの共有ランナーは、他のユーザーやリポジトリと共有されています。リソースが混雑していると、ジョブがキューに入って待機する時間が長くなることがあります。
-ネットワークの問題:
-
-インターネット接続の問題やGitHubのサーバー側の問題で遅延が発生することがあります。
-ランナーの制約:
-
-特定のランナーが多くのジョブを抱えている場合、ジョブがキューに入る可能性があります。
-改善策
-セルフホストランナーの導入:
-
-自分で管理するセルフホストランナーを設定することで、共有ランナーの競合を避けることができます。セルフホストランナーは、専用のリソースを使用するため、キューイングの問題を回避できます。
-例:
-
-yaml
-コードをコピーする
-runs-on: self-hosted
-ジョブの優先順位設定:
-
-高頻度で実行する必要があるジョブについては、優先順位を設定することも検討します。
-ランナーのステータスの確認:
-
-GitHubのステータスページを確認し、ランナーの稼働状況やメンテナンス情報を把握することで、問題が発生しているかどうかを確認します。
-GitHubステータスページ: GitHub Status
-
-ジョブの実行タイミングの調整:
-
-混雑する時間帯を避けて、ジョブの実行タイミングを調整することも一つの方法です。
-問題の報告:
-
-もし頻繁にこの問題が発生する場合は、GitHubサポートに問い合わせることで、問題の詳細を調査してもらうことができます。
-これらの改善策を試しても問題が解決しない場合は、さらに詳細な調査が必要です。セルフホストランナーの導入が特に効果的である場合が多いので、一度検討してみてください。
+フロー
+1. AWS Health Dashboard
+    * AWS Health Dashboardは、AWSアカウントのサービスやリソースのステータスを提供します。
+    * イベント発生時には、eventScopeCode（ACCOUNT_SPECIFICまたはPUBLIC）およびeventTypeCategory（issue、accountNotification、investigation、scheduledChange）に基づいて情報を配信します。
+2. Amazon EventBridge
+    * EventBridgeはAWS Healthからのイベントをキャッチします。
+    * リージョン固有イベントとグローバルイベントをフィルタリングし、SNSにルーティングします。
+    * ルールの設定で、特定のリージョンやイベントタイプに応じたアクションを実行します。
+3. Amazon SNS (Simple Notification Service)
+    * SNSは、EventBridgeから受け取ったイベントを処理します。
+    * 通知を購読者（AWS Lambda、Chatbotなど）に配信します。
+    * SNSトピックを通じて、イベント情報をサブスクライブしたシステムに配信します。
+4. AWS Chatbot
+    * ChatbotはSlackと統合し、SNSトピックからの通知を指定されたSlackチャンネルに配信します。
+    * ChatbotはIAMロールを使用して、SNSからのメッセージを受信し、Slackに送信します。
 
 
 
-GitHub Actionsのランナーは、ジョブを実行するための環境を提供するエージェントですが、必ずしもコンテナであるとは限りません。ランナーには以下のようなタイプがあります。
+次の条件でAWS HealthをSlackで受信する方法を教えて下さい
+日本語で回答して下さい
 
-共有ランナー (GitHubホストランナー)
-説明: GitHubが提供するデフォルトのランナーです。GitHubのインフラストラクチャで管理されており、自動的にプロビジョニングされます。
-実行環境: 通常、仮想マシン（VM）上で動作します。
-利点: 簡単に使用でき、特別な設定は不要です。
-欠点: 他のユーザーとリソースを共有するため、混雑時には遅延が発生することがあります。
-セルフホストランナー
-説明: 自分で管理するランナーです。自分のインフラストラクチャ上で動作させることができます。
-実行環境: 任意の物理マシン、仮想マシン、またはコンテナ上で動作させることができます。
-利点: 自分の専用リソースを使用するため、キューイングの遅延を避けられます。また、カスタム環境を設定できるため、特定の依存関係やツールを事前にインストールしておくことができます。
-欠点: 設定や管理に手間がかかります。
-セルフホストランナーのコンテナ実行
-セルフホストランナーをコンテナとして実行することも可能です。この場合、Dockerコンテナとして設定することで、簡単にランナーの環境を再現したり、スケーリングしたりすることができます。
-セルフホストランナーをコンテナで実行する例
-Dockerイメージを作成し、GitHub Actionsランナーをインストールします。
-必要な依存関係をインストールし、ランナーを設定します。
-コンテナを起動し、ジョブを実行します。
-dockerfile
-コードをコピーする
-# Dockerfileの例
-FROM ubuntu:20.04
+・CDKでTypeScriptを使用して設定する
+　CDKスタック(クラス)名：HealthSlack
 
-# 必要なツールをインストール
-RUN apt-get update && apt-get install -y \
-  curl \
-  sudo \
-  git \
-  jq
+・次のリージョン固有イベントを通知する
+　リージョン：東京
+　対象イベント：「ACCOUNT_SPECIFIC」 と 「PUBLIC」
+　AWS Healthイベントのタイプ：「issue」, 「accountNotification」, 「investigation」, 「scheduledChange」
+　通知対象サービス：全て
+　バックアップリージョンは、設定しない
 
-# GitHub Actionsランナーをインストール
-RUN mkdir /actions-runner
-WORKDIR /actions-runner
-RUN curl -o actions-runner-linux-x64-2.281.1.tar.gz -L https://github.com/actions/runner/releases/download/v2.281.1/actions-runner-linux-x64-2.281.1.tar.gz
-RUN tar xzf ./actions-runner-linux-x64-2.281.1.tar.gz
+・次のグローバルイベントを通知する
+　リージョン：米国東部（バージニア北部）
+　対象イベント：「ACCOUNT_SPECIFIC」 と 「PUBLIC」
+　AWS Healthイベントのタイプ：「issue」, 「accountNotification」, 「investigation」, 「scheduledChange」
+　通知対象サービス：「IAM」, 「Route53」 , 「Chatbot」
+　バックアップリージョンは、設定しない
 
-# エントリーポイントスクリプト
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+バックアップリージョンを設定すると重複排除の仕組みが複雑となるため、実装しない
 
-ENTRYPOINT ["/entrypoint.sh"]
-sh
-コードをコピーする
-# entrypoint.shの例
-#!/bin/bash
+——
+import * as cdk from 'aws-cdk-lib';
+import { Construct } from 'constructs';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as sns_subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as chatbot from 'aws-cdk-lib/aws-chatbot';
+import * as iam from 'aws-cdk-lib/aws-iam';
 
-# GitHubリポジトリとランナートークンの設定
-GITHUB_REPO="your-org/your-repo"
-RUNNER_TOKEN="your-runner-token"
+export class HealthSlack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
 
-# ランナーの設定
-./config.sh --url https://github.com/${GITHUB_REPO} --token ${RUNNER_TOKEN}
+    // Slack Workspace and Channel Configuration
+    const slackWorkspaceId = 'YOUR_SLACK_WORKSPACE_ID'; // あなたのSlackワークスペースIDを設定
+    const slackChannelId = 'YOUR_SLACK_CHANNEL_ID';     // あなたのSlackチャンネルIDを設定
 
-# ランナーの実行
-./run.sh
-このように、セルフホストランナーをコンテナとして実行することで、柔軟なランナー環境を構築できます。特に、特定のツールやライブラリが必要な場合や、スケーラビリティが求められる場合に有効です。
+    // SNSトピックの作成
+    const healthNotificationTopic = new sns.Topic(this, 'HealthNotificationTopic', {
+      displayName: 'AWS Health Notifications Topic'
+    });
+
+    // Chatbot用IAMロールの作成
+    const chatbotRole = new iam.Role(this, 'ChatbotRole', {
+      assumedBy: new iam.ServicePrincipal('chatbot.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSChatbotServiceLinkedRolePolicy'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchReadOnlyAccess')
+      ]
+    });
+
+    // AWS Chatbot設定
+    new chatbot.SlackChannelConfiguration(this, 'SlackChannelConfig', {
+      slackChannelConfigurationName: 'AWSHealthNotifications',
+      slackWorkspaceId: slackWorkspaceId,
+      slackChannelId: slackChannelId,
+      notificationTopics: [healthNotificationTopic],
+      role: chatbotRole
+    });
+
+    // 東京リージョンのリージョン固有イベント用EventBridgeルールの作成
+    new events.Rule(this, 'TokyoRegionalHealthRule', {
+      ruleName: 'TokyoRegionalHealthRule',
+      eventPattern: {
+        source: ['aws.health'],
+        detailType: ['AWS Health Event'],
+        detail: {
+          eventTypeCategory: ['issue', 'accountNotification', 'investigation', 'scheduledChange'],
+          eventScopeCode: ['ACCOUNT_SPECIFIC', 'PUBLIC']
+        }
+      },
+      targets: [new targets.SnsTopic(healthNotificationTopic)],
+      region: 'ap-northeast-1' // 東京リージョン
+    });
+
+    // 米国東部（バージニア北部）のグローバルイベント用EventBridgeルールの作成
+    new events.Rule(this, 'VirginiaGlobalHealthRule', {
+      ruleName: 'VirginiaGlobalHealthRule',
+      eventPattern: {
+        source: ['aws.health'],
+        detailType: ['AWS Health Global Event'],
+        detail: {
+          service: ['IAM', 'Route53', 'Chatbot'],
+          eventTypeCategory: ['issue', 'accountNotification', 'investigation', 'scheduledChange'],
+          eventScopeCode: ['ACCOUNT_SPECIFIC', 'PUBLIC']
+        }
+      },
+      targets: [new targets.SnsTopic(healthNotificationTopic)],
+      region: 'us-east-1' // 米国東部（バージニア北部）
+    });
+  }
+}
+——
