@@ -1,9 +1,10 @@
-// Add a rule with fixed response action for the sorry page
-listener443.addFixedResponseAction('FixedResponseForSorryPage', {
-    priority: 1, // Ensure this rule has the highest priority
-    conditions: [elbv2.ListenerCondition.pathPatterns(['/sorry'])], // Adjust condition as necessary
-    fixedResponse: {
-        statusCode: '200',
+// Add a new rule to return a fixed response for the sorry page
+listener443.addRules('FixedResponseRule', {
+    priority: 10, // Priority should be higher if this rule needs to take precedence
+    conditions: [
+        elbv2.ListenerCondition.pathPatterns(['/sorry*']) // Adjust the condition as needed
+    ],
+    action: elbv2.ListenerAction.fixedResponse(200, {
         contentType: 'text/html',
         messageBody: `
         <html>
@@ -15,9 +16,8 @@ listener443.addFixedResponseAction('FixedResponseForSorryPage', {
         </body>
         </html>
         `,
-    },
+    }),
 });
-
 
 
 
