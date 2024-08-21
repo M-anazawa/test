@@ -1,3 +1,43 @@
+// Create Application Load Balancer
+const alb = new elbv2.ApplicationLoadBalancer(this, context.applicationLoadBalancerName, {
+    vpc,
+    internetFacing: true,
+    securityGroup: albSecurityGroup,
+    vpcSubnets: { subnetGroupName: context.publicSubnetName },
+    loadBalancerName: context.applicationLoadBalancerName,
+});
+cdk.Tags.of(alb).add('Name', context.applicationLoadBalancerName);
+
+// Create listener443
+const listener443 = alb.addListener(context.applicationLoadBalancerListener443Name, {
+    port: 443,
+    open: true,
+    protocol: elbv2.ApplicationProtocol.HTTPS,
+});
+
+// Add fixed response action for the listener
+listener443.addFixedResponse('FixedResponseForSorryPage', {
+    statusCode: '200',
+    contentType: elbv2.ContentType.TEXT_HTML,
+    messageBody: `
+    <html>
+    <head>
+    <title>Sorry</title>
+    </head>
+    <body>
+    <img alt="Sorry Image" src="${context.sorryPageImageUrl}" style="display: block; margin: auto;" />
+    </body>
+    </html>
+    `,
+});
+
+"sorryPageImageUrl": "https://*****.s3.ap-northeast-1.amazonaws.com/maitenance_****/maitenance.png"
+
+
+
+
+
+
 イベントの種類
 ・ACCOUNT_SPECIFIC (アカウント固有イベント)・・・特定のAWSアカウントに直接影響を与えるイベント
 ・PUBLIC (パブリックイベント)・・・複数のアカウントやAWSリージョンに影響を与える可能性があるイベント
