@@ -1,8 +1,57 @@
-// Add a new rule to return a fixed response for the sorry page
-listener443.addRules('FixedResponseRule', {
-    priority: 10, // Priority should be higher if this rule needs to take precedence
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import { Duration } from 'aws-cdk-lib';
+
+// Create Application Load Balancer
+const alb = new elbv2.ApplicationLoadBalancer(this, context.applicationLoadBalancerName, {
+    vpc,
+    internetFacing: true,
+    securityGroup: albSecurityGroup,
+    vpcSubnets: { subnetGroupName: context.publicSubnetName },
+    loadBalancerName: context.applicationLoadBalancerName,
+});
+
+cdk.Tags.of(alb).add('Name', context.applicationLoadBalancerName);
+
+// Create Target Group 443
+const targetgroup443 = new elbv2.ApplicationTargetGroup(this, context.applicationLoadBalancerTargetGroup443Name, {
+    vpc,
+    port: 443,
+    targetGroupName: context.applicationLoadBalancerTargetGroup443Name,
+    protocol: elbv2.ApplicationProtocol.HTTP,
+    targetType: elbv2.TargetType.IP,
+    healthCheck: {
+        path: '/',
+        healthyHttpCodes: '200-302',
+        port: '80',
+        interval: Duration.seconds(60),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 5,
+        timeout: Duration.seconds(30),
+    },
+});
+
+// Create listener443
+const listener443 = alb.addListener(context.applicationLoadBalancerListener443Name, {
+    port: 443,
+    open: true,
+    protocol: elbv2.ApplicationProtocol.HTTPS,
+});
+
+// Add the existing rule with the highest priority
+listener443.addAction('ExistingRule', {
+    priority: 1, // Set the highest priority
+    action: elbv2.ListenerAction.forward([targetgroup443]), // Forwarding to the target group 443
     conditions: [
-        elbv2.ListenerCondition.pathPatterns(['/sorry*']) // Adjust the condition as needed
+        // Specify conditions for this rule, e.g., path pattern or host header
+        elbv2.ListenerCondition.pathPatterns(['/your-existing-path/*']), // Adjust the path pattern as needed
+    ],
+});
+
+// Add a rule with fixed response action for the sorry page
+listener443.addAction('FixedResponseForSorryPage', {
+    priority: 10, // Lower priority than the existing rule
+    conditions: [
+        elbv2.ListenerCondition.pathPatterns(['/sorry*']), // Adjust the path pattern as needed
     ],
     action: elbv2.ListenerAction.fixedResponse(200, {
         contentType: 'text/html',
@@ -17,6 +66,11 @@ listener443.addRules('FixedResponseRule', {
         </html>
         `,
     }),
+});
+
+// Add a default action as a fallback if none of the above rules match
+listener443.addTargetGroups('DefaultAction', {
+    targetGroups: [targetgroup443],
 });
 
 
