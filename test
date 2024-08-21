@@ -1,19 +1,23 @@
 // Add a rule with fixed response action for the sorry page
-listener443.addAction('FixedResponseForSorryPage', {
-    action: elbv2.ListenerAction.fixedResponse(200, {
-        contentType: elbv2.ContentType.TEXT_HTML,
+listener443.addFixedResponseAction('FixedResponseForSorryPage', {
+    priority: 1, // Ensure this rule has the highest priority
+    conditions: [elbv2.ListenerCondition.pathPatterns(['/sorry'])], // Adjust condition as necessary
+    fixedResponse: {
+        statusCode: '200',
+        contentType: 'text/html',
         messageBody: `
         <html>
         <head>
-        <title>Sorry</title>
+            <title>Sorry</title>
         </head>
         <body>
-        <img alt="Sorry Image" src="${context.sorryPageImageUrl}" style="display: block; margin: auto;" />
+            <img alt="Sorry Image" src="${context.sorryPageImageUrl}" style="display: block; margin: auto;" />
         </body>
         </html>
         `,
-    }),
+    },
 });
+
 
 
 
