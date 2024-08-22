@@ -1,3 +1,55 @@
+// Create listener443
+const listener443 = alb.addListener(context.applicationLoadBalancerListener443Name, {
+  port: 443,
+  open: true,
+  protocol: elbv2.ApplicationProtocol.HTTPS,
+});
+
+// Add the existing rule with the highest priority
+listener443.addAction(context.existingRule, {
+  priority: 1,
+  action: elbv2.ListenerAction.forward([targetgroup443]),
+  conditions: [
+    elbv2.ListenerCondition.pathPatterns(['/']),
+  ],
+});
+
+// Add a rule with fixed response action for the sorry page
+listener443.addAction(context.fixedResponseForSorryPage, {
+  priority: 2,  // 優先順位を高く設定
+  action: elbv2.ListenerAction.fixedResponse(200, {
+    contentType: 'text/html',
+    messageBody: `
+      <html>
+        <head>
+          <title>Sorry</title>
+        </head>
+        <body>
+          <img alt="Sorry Image" src="${context.sorryPageImageUrl}" style="display: block; margin: auto;" />
+        </body>
+      </html>
+    `,
+  }),
+});
+
+// デフォルトアクションとしてSorryページを設定
+listener443.addDefaultAction({
+  action: elbv2.ListenerAction.fixedResponse(200, {
+    contentType: 'text/html',
+    messageBody: `
+      <html>
+        <head>
+          <title>Sorry</title>
+        </head>
+        <body>
+          <img alt="Sorry Image" src="${context.sorryPageImageUrl}" style="display: block; margin: auto;" />
+        </body>
+      </html>
+    `,
+  }),
+});
+
+listener443.addCertificates(context.listener443CertificateId, [certificateFromDns]);
 
 
 
