@@ -1,5 +1,5 @@
-aws health describe-event-types --query "eventTypes[*].service" --output text
-aws health describe-event-types --region us-east-1 --query "eventTypes[*].service" --output text
+    // コンテキストからSlackチャネルのメールアドレスを取得
+    const slackEmail = this.node.tryGetContext('slackEmail');
 
 
 import * as cdk from 'aws-cdk-lib';
