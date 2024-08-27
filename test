@@ -1,129 +1,23 @@
-// Create listener443 with a default action for the Sorry page
-const listener443 = alb.addListener(context.applicationLoadBalancerListener443Name, {
-  port: 443,
-  open: true,
-  protocol: elbv2.ApplicationProtocol.HTTPS,
-  defaultAction: elbv2.ListenerAction.fixedResponse(200, {
-    contentType: 'text/html',
-    messageBody: `
-      <html>
-        <head>
-          <title>Sorry</title>
-        </head>
-        <body>
-          <img alt="Sorry Image" src="${context.sorryPageImageUrl}" style="display: block; margin: auto;" />
-        </body>
-      </html>
-    `,
-  }),
-});
-
-// Add the existing rule with the highest priority
-listener443.addAction(context.existingRule, {
-  priority: 1,
-  action: elbv2.ListenerAction.forward([targetgroup443]),
-  conditions: [
-    elbv2.ListenerCondition.pathPatterns(['/']),
-  ],
-});
-
-
-
-
-
-
-イベントの種類
-・ACCOUNT_SPECIFIC (アカウント固有イベント)・・・特定のAWSアカウントに直接影響を与えるイベント
-・PUBLIC (パブリックイベント)・・・複数のアカウントやAWSリージョンに影響を与える可能性があるイベント
-
-イベントのタイプ
-・issue (問題)・・・AWSサービスの障害や予期しない問題
-・accountNotification (アカウント通知)・・・特定のアカウントに関連する通知や情報
-・investigation (調査)・・・問題の原因を調査中であることの通知
-・scheduledChange (スケジュール変更)・・・計画的な変更やメンテナンス情報
-
-フロー
-1. AWS Health Dashboard
-    * AWS Health Dashboardは、AWSアカウントのサービスやリソースのステータスを提供します。
-    * イベント発生時には、eventScopeCode（ACCOUNT_SPECIFICまたはPUBLIC）およびeventTypeCategory（issue、accountNotification、investigation、scheduledChange）に基づいて情報を配信します。
-2. Amazon EventBridge
-    * EventBridgeはAWS Healthからのイベントをキャッチします。
-    * リージョン固有イベントとグローバルイベントをフィルタリングし、SNSにルーティングします。
-    * ルールの設定で、特定のリージョンやイベントタイプに応じたアクションを実行します。
-3. Amazon SNS (Simple Notification Service)
-    * SNSは、EventBridgeから受け取ったイベントを処理します。
-    * 通知を購読者（AWS Lambda、Chatbotなど）に配信します。
-    * SNSトピックを通じて、イベント情報をサブスクライブしたシステムに配信します。
-4. AWS Chatbot
-    * ChatbotはSlackと統合し、SNSトピックからの通知を指定されたSlackチャンネルに配信します。
-    * ChatbotはIAMロールを使用して、SNSからのメッセージを受信し、Slackに送信します。
-
-
-
-次の条件でAWS HealthをSlackで受信する方法を教えて下さい
-日本語で回答して下さい
-
-・CDKでTypeScriptを使用して設定する
-　CDKスタック(クラス)名：HealthSlack
-
-・次のリージョン固有イベントを通知する
-　リージョン：東京
-　対象イベント：「ACCOUNT_SPECIFIC」 と 「PUBLIC」
-　AWS Healthイベントのタイプ：「issue」, 「accountNotification」, 「investigation」, 「scheduledChange」
-　通知対象サービス：全て
-　バックアップリージョンは、設定しない
-
-・次のグローバルイベントを通知する
-　リージョン：米国東部（バージニア北部）
-　対象イベント：「ACCOUNT_SPECIFIC」 と 「PUBLIC」
-　AWS Healthイベントのタイプ：「issue」, 「accountNotification」, 「investigation」, 「scheduledChange」
-　通知対象サービス：「IAM」, 「Route53」 , 「Chatbot」
-　バックアップリージョンは、設定しない
-
-バックアップリージョンを設定すると重複排除の仕組みが複雑となるため、実装しない
-
-——
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import * as events from 'aws-cdk-lib/aws-events';
-import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sns_subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
-import * as chatbot from 'aws-cdk-lib/aws-chatbot';
-import * as iam from 'aws-cdk-lib/aws-iam';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 
 export class HealthSlack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Slack Workspace and Channel Configuration
-    const slackWorkspaceId = 'YOUR_SLACK_WORKSPACE_ID'; // あなたのSlackワークスペースIDを設定
-    const slackChannelId = 'YOUR_SLACK_CHANNEL_ID';     // あなたのSlackチャンネルIDを設定
-
-    // SNSトピックの作成
+    // 1. SNSトピックの作成
     const healthNotificationTopic = new sns.Topic(this, 'HealthNotificationTopic', {
       displayName: 'AWS Health Notifications Topic'
     });
 
-    // Chatbot用IAMロールの作成
-    const chatbotRole = new iam.Role(this, 'ChatbotRole', {
-      assumedBy: new iam.ServicePrincipal('chatbot.amazonaws.com'),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSChatbotServiceLinkedRolePolicy'),
-        iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchReadOnlyAccess')
-      ]
-    });
+    // 2. SNSトピックにSlackのメールエンドポイントを設定
+    healthNotificationTopic.addSubscription(new sns_subscriptions.EmailSubscription('your-slack-channel-email@example.com'));
 
-    // AWS Chatbot設定
-    new chatbot.SlackChannelConfiguration(this, 'SlackChannelConfig', {
-      slackChannelConfigurationName: 'AWSHealthNotifications',
-      slackWorkspaceId: slackWorkspaceId,
-      slackChannelId: slackChannelId,
-      notificationTopics: [healthNotificationTopic],
-      role: chatbotRole
-    });
-
-    // 東京リージョンのリージョン固有イベント用EventBridgeルールの作成
+    // 3. 東京リージョンのリージョン固有イベント用EventBridgeルールの作成
     new events.Rule(this, 'TokyoRegionalHealthRule', {
       ruleName: 'TokyoRegionalHealthRule',
       eventPattern: {
@@ -138,14 +32,14 @@ export class HealthSlack extends cdk.Stack {
       region: 'ap-northeast-1' // 東京リージョン
     });
 
-    // 米国東部（バージニア北部）のグローバルイベント用EventBridgeルールの作成
+    // 4. 米国東部（バージニア北部）のグローバルイベント用EventBridgeルールの作成
     new events.Rule(this, 'VirginiaGlobalHealthRule', {
       ruleName: 'VirginiaGlobalHealthRule',
       eventPattern: {
         source: ['aws.health'],
         detailType: ['AWS Health Global Event'],
         detail: {
-          service: ['IAM', 'Route53', 'Chatbot'],
+          service: ['IAM', 'Route53', 'AWS Health Dashboard'],
           eventTypeCategory: ['issue', 'accountNotification', 'investigation', 'scheduledChange'],
           eventScopeCode: ['ACCOUNT_SPECIFIC', 'PUBLIC']
         }
@@ -155,4 +49,3 @@ export class HealthSlack extends cdk.Stack {
     });
   }
 }
-——
