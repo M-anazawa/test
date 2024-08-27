@@ -1,5 +1,15 @@
+AWSマネジメントコンソールから、EventBridgeにカスタムイベントを送信します。
+
+EventBridgeコンソールに移動します。
+「イベントの送信」を選択します。
+カスタムイベントを選択し、以下のようなJSONを使用してイベントを送信します。
+
 {
   "Source": "aws.health",
   "DetailType": "AWS Health Event",
   "Detail": "{\"service\":\"EC2\",\"eventTypeCode\":\"AWS_EC2_INSTANCE_STATE_CHANGE\",\"eventTypeCategory\":\"issue\",\"eventScopeCode\":\"ACCOUNT_SPECIFIC\"}"
 }
+
+
+このカスタムイベントは、EC2に関連するダミーのAWS Healthイベントをトリガーします。
+このイベントがEventBridgeルールによってキャッチされ、SNS経由でSlackに通知されることを確認します。
