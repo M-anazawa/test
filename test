@@ -57,3 +57,20 @@ export class HealthSlackStack extends cdk.Stack {
     }
   }
 }
+
+
+#!/usr/bin/env node
+import * as cdk from 'aws-cdk-lib';
+import { HealthSlackStack } from '../lib/health-slack-stack';
+
+const app = new cdk.App();
+
+new HealthSlackStack(app, 'TokyoHealthSlackStack', {
+  env: { region: 'ap-northeast-1' }, // 東京リージョン
+  region: 'ap-northeast-1'
+});
+
+new HealthSlackStack(app, 'VirginiaHealthSlackStack', {
+  env: { region: 'us-east-1' }, // 米国東部（バージニア北部）リージョン
+  region: 'us-east-1'
+});
