@@ -1,2 +1,3 @@
 aws wafv2 get-managed-rule-set --name AWSManagedRulesCommonRuleSet --scope REGIONAL --vendor-name AWS
+aws wafv2 list-available-managed-rule-groups --scope REGIONAL
 
