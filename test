@@ -1,1 +1,43 @@
-iamResources: [`arn:aws:codepipeline:${context.awsRegion}:${context.awsAccountId}:${pipeline.pipelineName}`],
+import * as cdk from 'aws-cdk-lib';
+import { Construct } from 'constructs';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
+import { RemovalPolicy } from 'aws-cdk-lib';
+
+export class CdkEcr extends cdk.Stack {
+    public readonly ecrRepositoryWebappName: string;
+    constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+        super(scope, id, props);
+
+        // Environment Selection
+        const stage = this.node.tryGetContext('stage');
+        const context = this.node.tryGetContext(stage);
+
+        if (stage) {
+
+            // Create ECR
+            const EcrRepositoryWebproxy = new ecr.Repository(this, context.ecrRepositoryWebproxyName, {
+                imageTagMutability: ecr.TagMutability.IMMUTABLE,
+                imageScanOnPush: true,
+                removalPolicy: RemovalPolicy.DESTROY,
+                autoDeleteImages: true,
+            });
+
+            const EcrRepositoryWebapp = new ecr.Repository(this, context.ecrRepositoryWebappName, {
+                repositoryName: context.ecrRepositoryWebappName,
+                imageScanOnPush: true,
+                removalPolicy: RemovalPolicy.DESTROY,
+                autoDeleteImages: true,
+            });
+
+            // Add lifecycle policy to retain only 3 images, regardless of tags
+            EcrRepositoryWebapp.addLifecycleRule({
+                rulePriority: 1,
+                description: 'Retain only 3 most recent images',
+                tagStatus: ecr.TagStatus.ANY,  // Tagの有無に関係なく適用
+                maxImageCount: 3,              // 最新の3つを保持
+            });
+
+            this.ecrRepositoryWebappName = EcrRepositoryWebapp.repositoryName;
+        } else {}
+    }
+}
