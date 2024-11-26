@@ -1,1 +1,21 @@
-
+  {
+    priority: 1,
+    name: 'AWSManagedRulesCommonRuleSet',
+    overrideAction: { none: {} }, // デフォルトで none
+    visibilityConfig: {
+      sampledRequestsEnabled: true,
+      cloudWatchMetricsEnabled: true,
+      metricName: `${context.webACLNameId}Metric-001`
+    },
+    statement: {
+      managedRuleGroupStatement: {
+        vendorName: "AWS",
+        name: "AWSManagedRulesCommonRuleSet",
+        excludedRules: [
+          {
+            name: 'SizeRestrictions_BODY', // SizeRestrictions_BODYは別途アクションを指定
+          },
+        ],
+      },
+    },
+  },
