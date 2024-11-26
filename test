@@ -1,1 +1,62 @@
+function createByteMatchStatement(searchString: string): wafv2.CfnWebACL.ByteMatchStatementProperty {
+  return {
+    fieldToMatch: { uriPath: {} },
+    positionalConstraint: 'STARTS_WITH',
+    searchString,
+    textTransformations: [{ priority: 0, type: 'NONE' }],
+  };
+}
+
+
+
+rules: [
+  {
+    priority: 301,
+    name: 'SizeRestrictionsBodyExceptionCountRule',
+    overrideAction: { count: {} },
+    visibilityConfig: {
+      sampledRequestsEnabled: true,
+      cloudWatchMetricsEnabled: true,
+      metricName: `${context.webACLNameId}Metric-301`,
+    },
+    statement: {
+      orStatement: {
+        statements: [
+          {
+            byteMatchStatement: createByteMatchStatement('/test/123/aaa/'),
+          },
+          {
+            byteMatchStatement: createByteMatchStatement('/test/123/bbb/'),
+          },
+        ],
+      },
+    },
+  },
+  {
+    priority: 302,
+    name: 'SizeRestrictionsBodyExceptionNoneRule',
+    overrideAction: { none: {} },
+    visibilityConfig: {
+      sampledRequestsEnabled: true,
+      cloudWatchMetricsEnabled: true,
+      metricName: `${context.webACLNameId}Metric-302`,
+    },
+    statement: {
+      notStatement: {
+        statement: {
+          orStatement: {
+            statements: [
+              {
+                byteMatchStatement: createByteMatchStatement('/test/123/aaa/'),
+              },
+              {
+                byteMatchStatement: createByteMatchStatement('/test/123/bbb/'),
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
+],
 
