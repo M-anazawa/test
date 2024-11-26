@@ -1,1 +1,91 @@
+rules: [
+  // 他の既存ルール
+  {
+    priority: 1,
+    name: 'AWSManagedRulesCommonRuleSet',
+    overrideAction: overrideActionSetting,
+    visibilityConfig: {
+      sampledRequestsEnabled: true,
+      cloudWatchMetricsEnabled: true,
+      metricName: `${context.webACLNameId}Metric-001`
+    },
+    statement: {
+      managedRuleGroupStatement: {
+        vendorName: "AWS",
+        name: "AWSManagedRulesCommonRuleSet",
+      },
+    },
+  },
+  // 他の既存ルールの続き...
+
+  // 新しいルールをここに追加
+  {
+    priority: 301,
+    name: 'SizeRestrictionsBodyExceptionCountRule',
+    overrideAction: { count: {} },
+    visibilityConfig: {
+      sampledRequestsEnabled: true,
+      cloudWatchMetricsEnabled: true,
+      metricName: `${context.webACLNameId}Metric-301`,
+    },
+    statement: {
+      orStatement: {
+        statements: [
+          {
+            byteMatchStatement: {
+              fieldToMatch: { uriPath: {} },
+              positionalConstraint: 'STARTS_WITH',
+              searchString: '/test/123/aaa/',
+              textTransformations: [{ priority: 0, type: 'NONE' }],
+            },
+          },
+          {
+            byteMatchStatement: {
+              fieldToMatch: { uriPath: {} },
+              positionalConstraint: 'STARTS_WITH',
+              searchString: '/test/123/bbb/',
+              textTransformations: [{ priority: 0, type: 'NONE' }],
+            },
+          },
+        ],
+      },
+    },
+  },
+  {
+    priority: 302,
+    name: 'SizeRestrictionsBodyExceptionNoneRule',
+    overrideAction: { none: {} },
+    visibilityConfig: {
+      sampledRequestsEnabled: true,
+      cloudWatchMetricsEnabled: true,
+      metricName: `${context.webACLNameId}Metric-302`,
+    },
+    statement: {
+      notStatement: {
+        statement: {
+          orStatement: {
+            statements: [
+              {
+                byteMatchStatement: {
+                  fieldToMatch: { uriPath: {} },
+                  positionalConstraint: 'STARTS_WITH',
+                  searchString: '/test/123/aaa/',
+                  textTransformations: [{ priority: 0, type: 'NONE' }],
+                },
+              },
+              {
+                byteMatchStatement: {
+                  fieldToMatch: { uriPath: {} },
+                  positionalConstraint: 'STARTS_WITH',
+                  searchString: '/test/123/bbb/',
+                  textTransformations: [{ priority: 0, type: 'NONE' }],
+                },
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
+]
 
