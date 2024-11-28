@@ -1,1 +1,12 @@
+const fs = require('fs');
+
+// "a"を9000文字分生成してJSONデータを作成
+const data = {
+  largeData: "a".repeat(9000),
+};
+
+// JSONファイルとして保存
+fs.writeFileSync('large-body.json', JSON.stringify(data, null, 2));
+
+console.log('large-body.json has been created.');
 
