@@ -1,0 +1,39 @@
+以下は、Mac Book上でこれらのCDKコード（既にGitHubリポジトリで管理されているもの）をデプロイするための、環境構築からデプロイ手順の詳細なガイドです。
+
+前提条件
+1. AWSアカウントと認証情報
+    * AWSアカウントを所持しており、デプロイ対象のリージョン・アカウントIDが定まっていること。
+    * IAMユーザ、あるいはロールを使用し、十分な権限（CloudFormation, IAM, Redshift, VPC, Secrets Manager, KMS, SNS, Lambda, S3などの作成・更新権限）を持ったクレデンシャルを用意しておく必要があります。
+2. GitHubリポジトリへのアクセス権
+    * Mac上にSSHキーまたはトークンでGitHubリポジトリにアクセスできる環境があること。
+
+開発環境構築手順
+以下の手順は、Mac OS上でのセットアップ手順の一例です。
+1. Homebrewのインストール（未インストールの場合） Homebrew公式サイトに記載の通りにインストール。  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" 
+2. Node.jsのインストール Node.jsは最新LTSを使うことが一般的です。Homebrewでのインストール例：  brew install node  または nvm (Node Version Manager)を使ってNode.jsバージョンを管理することもできます。 
+	brew install nvm
+	mkdir ~/.nvm
+	echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.zshrc
+	echo '[ -s "/usr/local/opt/nvm/nvm.sh" ] && \. "/usr/local/opt/nvm/nvm.sh"' >> ~/.zshrc
+	source ~/.zshrc
+	nvm install --lts
+	nvm use --lts
+
+3. AWS CLIのインストールおよび設定 
+	brew install awscli
+	aws configure  	aws configureコマンドでAWSアクセスキー、シークレットキー、デフォルトリージョンなどを設定します。
+
+4. CDK CLIのインストール CDK CLIをグローバルにインストールします。  npm install -g aws-cdk@latest  バージョンはプロジェクトのpackage.jsonやcdk.jsonに記載されているCDKライブラリバージョンと整合性をとるとよいです。 （必要に応じてnpm install -g aws-cdk@<version>などで特定バージョンを指定）
+
+5. リポジトリのクローン GitHub上のリポジトリをクローンします。 
+	git clone git@github.com:<your-org-or-user>/<your-repo>.git
+	cd <your-repo>
+
+6. 依存パッケージのインストール プロジェクトディレクトリ（cd <your-repo>した後）で  npm install  を実行して、package.jsonに記載のCDKやclass-validator, js-yamlなどの依存パッケージをインストールします。
+
+CDKブートストラップ（必要な場合）
+初めてそのAWSアカウント・リージョンペアでCDKを使う場合、ブートストラップが必要となる場合があります。
+
+cdk bootstrap aws://<AWS_ACCOUNT_ID>/<AWS_REGION>
+
+ここで <AWS_ACCOUNT_ID> と <AWS_REGION> はあなたがデプロイしたい先の値を指定します（例：aws://123456789012/ap-northeast-1）。
