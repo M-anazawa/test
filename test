@@ -1,8 +1,1 @@
-  "s3:GetBucketAcl",
-
-
-  // dwhログバケットを追加
-  `arn:aws:s3:::${props.ctx.dwhLogsBucketName()}`,
-  `arn:aws:s3:::${props.ctx.dwhLogsBucketName()}/*`
-
 
