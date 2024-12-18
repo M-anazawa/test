@@ -1,1 +1,7 @@
 
+2回目以降のデプロイ 再デプロイ時には、新たなシークレット作成コードをコメントアウトし、既存シークレットをfromSecretNameV2でインポートするコードに変更します。 変更後の例:  // 最初のデプロイで使用していたnew Secretはコメントアウト
+// const secret = new secretsmanager.Secret(this, "RedshiftSecretManager", { ... });
+
+// 既に存在するシークレットを参照
+const secret = secretsmanager.Secret.fromSecretNameV2(this, "RedshiftSecretManager", props.ctx.redshiftClusterName) as secretsmanager.Secret;
+ RemovalPolicy.RETAINを指定していたため、最初のデプロイで作成されたシークレットはスタックからリソース定義が消えても物理的に削除されず、AWS上に残ります。そのため、2回目のデプロイではfromSecretNameV2で既存シークレットを参照することができ、エラーになりません。
