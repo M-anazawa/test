@@ -170,7 +170,35 @@ aws redshift describe-cluster-restore-status \
 
 以上のコマンドを用いることで、手動スナップショットの取得・確認・削除、共有、そしてスナップショットからのクラスター復元や進捗確認が可能となります。
 
+◾️スナップショットの共有・復元に必要な権限設定
 
+Redshiftスナップショットの共有・復元には、実行する側および受け取る側（復元先）で以下の権限が必要となります。また、スナップショットが暗号化されている場合、KMSキーへのアクセス権限も考慮する必要があります。
+
+1. スナップショットを共有する側（スナップショットオーナー側）
+スナップショットの共有設定を変更するために、以下のようなAPI操作を許可するIAMポリシーが必要です。
+
+redshift:ModifyClusterSnapshot
+modify-cluster-snapshot コマンドを利用して、--accounts-with-restore-access オプションで他アカウントへのアクセス権を付与する際に使用します。
+スナップショット自体を記述・確認するための読み取り権限も通常必要となります。
+
+redshift:DescribeClusterSnapshots
+2. スナップショットを受け取る側（復元先アカウント）
+共有されたスナップショットからクラスターを復元するためには、以下の権限が必要です。
+
+redshift:DescribeClusterSnapshots
+共有されたスナップショットの存在と詳細を確認するため
+redshift:RestoreFromClusterSnapshot
+スナップショットからクラスターを復元するため
+3. 暗号化されたスナップショットを扱う場合
+スナップショットがKMSキーで暗号化されている場合、復元先アカウントは該当するKMSキーを使用可能である必要があります。
+
+AWS KMSキーのキー ポリシーで、復元先アカウントのIAMユーザーまたはロールに対してkms:Decrypt, kms:GenerateDataKey*, kms:DescribeKey などの権限を付与し、さらにスナップショット復元操作を許可するIAMロールを使用できるようにする必要があります。
+まとめ
+
+スナップショット共有元：redshift:ModifyClusterSnapshot および redshift:DescribeClusterSnapshots
+スナップショット復元先：redshift:DescribeClusterSnapshots および redshift:RestoreFromClusterSnapshot
+暗号化スナップショットの場合、KMSキーへのアクセス権限(kms:*)も必要
+これらの権限を適切に設定し、必要に応じてKMSキーのポリシーを調整することで、スナップショットの共有および他アカウントからの復元を行えます。
 
 
 
