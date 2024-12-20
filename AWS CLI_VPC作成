@@ -30,7 +30,7 @@ aws ec2 modify-vpc-attribute \
 2. インターネットゲートウェイ（IGW）の作成とアタッチ
 
 IGW_ID=$(aws ec2 create-internet-gateway \
-    --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=dwh-production-ap00-igw}]' \
+    --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=test-igw}]' \
     --region ap-northeast-1 \
     --query 'InternetGateway.InternetGatewayId' \
     --output text)
@@ -49,7 +49,7 @@ SUBNET_PUBLIC_1A=$(aws ec2 create-subnet \
     --vpc-id $VPC_ID \
     --cidr-block 10.0.1.0/24 \
     --availability-zone ap-northeast-1a \
-    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=dwh-production-ap00-subnet-public-1a}]' \
+    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=test-subnet-public-1a}]' \
     --region ap-northeast-1 \
     --query 'Subnet.SubnetId' \
     --output text)
@@ -62,7 +62,7 @@ SUBNET_PUBLIC_1C=$(aws ec2 create-subnet \
     --vpc-id $VPC_ID \
     --cidr-block 10.0.2.0/24 \
     --availability-zone ap-northeast-1c \
-    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=dwh-production-ap00-subnet-public-1c}]' \
+    --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=test-subnet-public-1c}]' \
     --region ap-northeast-1 \
     --query 'Subnet.SubnetId' \
     --output text)
@@ -85,7 +85,7 @@ aws ec2 modify-subnet-attribute \
 
 RTB_PUBLIC=$(aws ec2 create-route-table \
     --vpc-id $VPC_ID \
-    --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=dwh-production-ap00-rt-public}]' \
+    --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=test-rt-public}]' \
     --region ap-northeast-1 \
     --query 'RouteTable.RouteTableId' \
     --output text)
@@ -120,7 +120,7 @@ aws ec2 create-vpc-endpoint \
     --service-name com.amazonaws.ap-northeast-1.s3 \
     --vpc-endpoint-type Gateway \
     --route-table-ids $RTB_PUBLIC \
-    --tag-specifications 'ResourceType=vpc-endpoint,Tags=[{Key=Name,Value=dwh-production-ap00-s3-endpoint}]' \
+    --tag-specifications 'ResourceType=vpc-endpoint,Tags=[{Key=Name,Value=test-s3-endpoint}]' \
     --region ap-northeast-1
 
 以上で、要求されたVPC環境（VPC、2つのパブリックサブネット、インターネットゲートウェイ、そしてS3へのゲートウェイ型VPCエンドポイント）が作成できます。
