@@ -202,5 +202,129 @@ AWS KMSキーのキー ポリシーで、復元先アカウントのIAMユーザ
 暗号化スナップショットの場合、KMSキーへのアクセス権限(kms:*)も必要
 これらの権限を適切に設定し、必要に応じてKMSキーのポリシーを調整することで、スナップショットの共有および他アカウントからの復元を行えます。
 
+◾️スナップショットの共有・復元に必要な権限設定AWS CLI
 
+以下は、リンク先ドキュメントの内容（Redshiftスナップショット共有時に必要なKMSキーアクセス権限を含む）を踏まえた、「スナップショットを共有する側」と「スナップショットを受け取る側」が必要とするIAMポリシーをAWS CLIで作成およびアタッチする一連の手順例です。
+本例では、
+
+共有元アカウント: スナップショットを他アカウントへ共有する側
+共有先アカウント: 共有されたスナップショットからクラスターを復元する側
+を想定します。
+
+※以下の例では、<ACCOUNT_ID>、<USER_NAME>, <KMS_KEY_ARN> (例: arn:aws:kms:ap-northeast-1:<ACCOUNT_ID>:key/<KMS_KEY_ID>) を適宜置き換えてください。また、リージョンは必要に応じて変更してください。
+
+共有元アカウント側のポリシー設定
+
+ポリシー内容
+共有元は、スナップショット共有設定を変更するため redshift:ModifyClusterSnapshot、およびスナップショット詳細確認用の redshift:DescribeClusterSnapshots が必要です。また、KMSキーで暗号化されている場合は、共有元側でKMSキーに対し、Redshiftが使用できる設定（KMSキーに対する適切なKeyポリシー設定）が必要ですが、IAMポリシーとしては下記のRedshift操作が主となります。
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "redshift:ModifyClusterSnapshot",
+        "redshift:DescribeClusterSnapshots"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+
+ポリシー作成 (共有元アカウント)
+aws iam create-policy \
+  --policy-name SnapshotSharePolicyForOwner \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "redshift:ModifyClusterSnapshot",
+          "redshift:DescribeClusterSnapshots"
+        ],
+        "Resource": "*"
+      }
+    ]
+  }'
+作成されたポリシーARNは出力されます (arn:aws:iam::<ACCOUNT_ID>:policy/SnapshotSharePolicyForOwner)。
+
+ポリシーをIAMユーザにアタッチ (共有元アカウント)
+aws iam attach-user-policy \
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/SnapshotSharePolicyForOwner \
+  --user-name <USER_NAME>
+
+共有先アカウント側のポリシー設定
+
+ポリシー内容
+共有先は、スナップショット詳細参照 (redshift:DescribeClusterSnapshots) と、スナップショットからの復元 (redshift:RestoreFromClusterSnapshot) を行う必要があります。
+さらに、スナップショットが暗号化されている場合、使用するKMSキー（共有元アカウントで管理しているキー）に対する以下の権限が必要になります。
+
+kms:DescribeKey
+kms:CreateGrant
+kms:Decrypt
+kms:GenerateDataKeyWithoutPlaintext
+
+KMSキーに対するリソースは、対象のキーARNを指定します。
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "redshift:DescribeClusterSnapshots",
+        "redshift:RestoreFromClusterSnapshot"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:CreateGrant",
+        "kms:Decrypt",
+        "kms:GenerateDataKeyWithoutPlaintext"
+      ],
+      "Resource": "<KMS_KEY_ARN>"
+    }
+  ]
+}
+
+ポリシー作成 (共有先アカウント)
+aws iam create-policy \
+  --policy-name SnapshotSharePolicyForRestorer \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "redshift:DescribeClusterSnapshots",
+          "redshift:RestoreFromClusterSnapshot"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "kms:DescribeKey",
+          "kms:CreateGrant",
+          "kms:Decrypt",
+          "kms:GenerateDataKeyWithoutPlaintext"
+        ],
+        "Resource": "<KMS_KEY_ARN>"
+      }
+    ]
+  }'
+
+ポリシーをIAMユーザにアタッチ (共有先アカウント)
+aws iam attach-user-policy \
+  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/SnapshotSharePolicyForRestorer \
+  --user-name <USER_NAME>
+
+注意点
+KMSキーのポリシー自体でも、共有先アカウントおよびRedshiftサービスが当該キーを使用できるように設定する必要があります。
+上記はIAMポリシー例であり、実際にはKeyポリシー側でのアクセス権付与、Redshiftサービスロールとの連携が必要な場合もあります。
+<KMS_KEY_ARN>、<ACCOUNT_ID>、<USER_NAME>、キーのARNやユーザ名などは実際の環境に合わせて変更してください。
 
