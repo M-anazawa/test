@@ -1,1 +1,43 @@
+1. 生成したデータを格納するためのテーブルを作成します。
 
+CREATE TABLE test_large_data (
+    id BIGINT,
+    name VARCHAR(255),
+    created_at TIMESTAMP
+);
+
+id: 一意の識別子
+name: ダミーの名前
+created_at: タイムスタンプ
+
+2. RedshiftのGENERATE_SERIES関数を使用してデータを生成し、テーブルに挿入します。
+
+INSERT INTO test_large_data
+SELECT
+    row_number() OVER () AS id,
+    'dummy_data_' || generate_series AS name,
+    current_timestamp + (generate_series * interval '1 second') AS created_at
+FROM
+    generate_series(1, 1000000);
+
+generate_series(1, 1000000): 数値の範囲を指定してデータを生成します。この例では1から1,000,000まで。
+row_number() OVER (): 各行に一意のIDを割り当てます。
+'dummy_data_' || generate_series: ダミー名を作成。
+current_timestamp + (generate_series * interval '1 second'): 現在時刻を基に、インクリメントされたタイムスタンプを生成。
+注意: 必要なデータ量に応じてgenerate_seriesの範囲を調整してください。
+
+3. データが正しく挿入されたか確認する
+
+SELECT COUNT(*) FROM test_large_data; -- データの行数を確認
+SELECT * FROM test_large_data LIMIT 10; -- 最初の10行を表示
+
+
+4. テーブル削除
+
+DROP TABLE test_large_data;
+
+5. テーブル削除確認
+
+SELECT tablename
+FROM pg_table_def
+WHERE schemaname = 'public';
