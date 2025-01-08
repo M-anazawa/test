@@ -1,24 +1,15 @@
-Redshiftの手動スナップショットの作成と、スナップショットのAWSアカウント間共有設定を行うために必要なIAMポリシーを以下に示します。
+KMSキー関連の権限
+暗号化スナップショットを共有する場合は、スナップショットに使用されているKMSキーのアクセス許可を共有先アカウントに付与する必要があります。
 
-1. 必要なアクション
-以下のアクションが必要です：
+KMSキーのアクセス権:
 
-スナップショットの作成:
+kms:CreateGrant
+kms:DescribeKey
+kms:ListGrants
+kms:RevokeGrant
+KMSキーのポリシー設定:
 
-redshift:CreateClusterSnapshot
-スナップショットの共有設定:
-
-redshift:ModifyClusterSnapshot
-redshift:DescribeClusterSnapshots
-スナップショットの削除（必要に応じて）:
-
-redshift:DeleteClusterSnapshot
-他のアカウントへの共有:
-
-redshift:AuthorizeSnapshotAccess
-
-2. IAMポリシー例
-以下は、必要な権限をすべて含むIAMポリシーの例です：
+KMSキーに共有先アカウントを明示的に許可するポリシーを設定します。
 
 {
     "Version": "2012-10-17",
@@ -26,46 +17,21 @@ redshift:AuthorizeSnapshotAccess
         {
             "Effect": "Allow",
             "Action": [
-                "redshift:CreateClusterSnapshot",
-                "redshift:ModifyClusterSnapshot",
-                "redshift:DescribeClusterSnapshots",
-                "redshift:DeleteClusterSnapshot",
-                "redshift:AuthorizeSnapshotAccess"
+                "kms:CreateGrant",
+                "kms:DescribeKey",
+                "kms:ListGrants",
+                "kms:RevokeGrant"
             ],
-            "Resource": "arn:aws:redshift:*:*:snapshot/*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "redshift:DescribeClusters"
-            ],
-            "Resource": "*"
+            "Resource": "arn:aws:kms:your-region:your-account-id:key/your-key-id"
         }
     ]
 }
 
+your-region: KMSキーが作成されたリージョン。
+your-account-id: KMSキーを管理しているアカウントのID。
+your-key-id: KMSキーのIDまたはARN。
 
-ポリシーの内容
-redshift:CreateClusterSnapshot:
 
-クラスターの手動スナップショットを作成するための権限。
-redshift:ModifyClusterSnapshot:
 
-既存のスナップショットを変更する権限（共有設定など）。
-redshift:DescribeClusterSnapshots:
 
-スナップショットの詳細を取得するための権限。
-redshift:DeleteClusterSnapshot:
-
-不要なスナップショットを削除する権限（必要に応じて付与）。
-redshift:AuthorizeSnapshotAccess:
-
-他のAWSアカウントにスナップショットへのアクセス権を付与するための権限。
-redshift:DescribeClusters:
-
-クラスター情報を取得する権限（スナップショット作成に関連）。
-Resource:
-
-arn:aws:redshift:*:*:snapshot/* で、すべてのスナップショットに対して権限を付与。
-必要に応じて、特定のスナップショットやクラスターに限定可能。
 
