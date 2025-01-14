@@ -1,15 +1,43 @@
-KMSキー関連の権限
-暗号化スナップショットを共有する場合は、スナップショットに使用されているKMSキーのアクセス許可を共有先アカウントに付与する必要があります。
+1. 必要な権限
 
-KMSキーのアクセス権:
+A. Redshiftスナップショットの操作に必要な権限
+	1.	スナップショットの復元:
+	•	redshift:RestoreFromClusterSnapshot
 
-kms:CreateGrant
-kms:DescribeKey
-kms:ListGrants
-kms:RevokeGrant
-KMSキーのポリシー設定:
+	2.	スナップショットの参照:
+	•	redshift:DescribeClusterSnapshots
+	•	redshift:DescribeClusters
 
-KMSキーに共有先アカウントを明示的に許可するポリシーを設定します。
+B. KMSキーに関連する権限
+
+移行元アカウントから共有されたスナップショットで使用されているKMSキーへのアクセス権が必要です。
+	1.	KMSキーの復号:
+	•	kms:Decrypt
+
+	2.	KMSキーの参照:
+	•	kms:DescribeKey
+
+2. IAMポリシー例
+
+以下は、移行先のAWSアカウントで暗号化されたスナップショットを復元するためのIAMポリシーの例です。
+
+A. Redshiftスナップショットの復元用ポリシー
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "redshift:RestoreFromClusterSnapshot",
+                "redshift:DescribeClusterSnapshots",
+                "redshift:DescribeClusters"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
+
+B. KMSキーのアクセス権付与用ポリシー
 
 {
     "Version": "2012-10-17",
@@ -17,21 +45,17 @@ KMSキーに共有先アカウントを明示的に許可するポリシーを�
         {
             "Effect": "Allow",
             "Action": [
-                "kms:CreateGrant",
-                "kms:DescribeKey",
-                "kms:ListGrants",
-                "kms:RevokeGrant"
+                "kms:Decrypt",
+                "kms:DescribeKey"
             ],
-            "Resource": "arn:aws:kms:your-region:your-account-id:key/your-key-id"
+            "Resource": "arn:aws:kms:source-region:source-account-id:key/source-key-id"
         }
     ]
 }
 
-your-region: KMSキーが作成されたリージョン。
-your-account-id: KMSキーを管理しているアカウントのID。
-your-key-id: KMSキーのIDまたはARN。
-
-
-
-
-
+	•	source-region:
+	•	移行元のKMSキーが存在するリージョン。
+	•	source-account-id:
+	•	移行元のAWSアカウントID。
+	•	source-key-id:
+	•	移行元でスナップショット暗号化に使用されたKMSキーのIDまたはARN。
