@@ -1,61 +1,470 @@
-1. 必要な権限
+以下の手順・サンプルコード例では、CDK (TypeScript) を使用し、
+* Node.js 22 ランタイムの Lambda 関数
+* EventBridge (旧 CloudWatch Events) のスケジュールトリガー
+を使って、**「取得から7日以上経過した手動スナップショット（自動スナップショットは除く）を自動削除」**する方法を解説します。 概念的には次の流れです。
 
-A. Redshiftスナップショットの操作に必要な権限
-	1.	スナップショットの復元:
-	•	redshift:RestoreFromClusterSnapshot
+1. Lambda 関数
+    * AWS SDK for JavaScript (v3) を使い、DescribeDBSnapshots を実行して「手動スナップショット」を一覧取得する。
+    * 取得結果のうち、「7 日以上前に作成されたスナップショット」を洗い出す。
+    * 上記に該当するスナップショットを DeleteDBSnapshot で削除する。
+2. EventBridge ルール
+    * 上記 Lambda 関数を1 日 1 回などのスケジュールで呼び出す。
+    * Cron 表記で「毎日深夜 0 時」などを指定できる。
+3. CDK コード構成
+    * MyStack のようなスタックを作成し、その中で
+        1. Lambda 関数の作成
+        2. Lambda 関数に必要な IAM ポリシー付与
+        3. EventBridge ルールの作成と Lambda のターゲット登録
+    * ランタイムは Runtime.NODEJS_22_X を指定する。
 
-	2.	スナップショットの参照:
-	•	redshift:DescribeClusterSnapshots
-	•	redshift:DescribeClusters
+以下に最小限のサンプルコードを示します。
 
-B. KMSキーに関連する権限
+ディレクトリ構成例
+.
+├── bin
+│   └── cdk-app.ts          // CDK のエントリーポイント
+└── lib
+    ├── my-stack.ts         // メインのスタック定義
+    └── lambda              // Lambda 関数のコード置き場
+        └── deleteSnapshots.ts
 
-移行元アカウントから共有されたスナップショットで使用されているKMSキーへのアクセス権が必要です。
-	1.	KMSキーの復号:
-	•	kms:Decrypt
+* bin/cdk-app.ts CDK アプリケーションのエントリーポイント。MyStack をデプロイ。
+* lib/my-stack.ts スタック定義ファイル。Lambda 関数や EventBridge rule を定義。
+* lib/lambda/deleteSnapshots.ts 実際にスナップショットを削除するロジック。
 
-	2.	KMSキーの参照:
-	•	kms:DescribeKey
+もちろん、フォルダ構成はプロジェクトによって変わって構いません。
 
-2. IAMポリシー例
+1. Lambda 関数のコード（deleteSnapshots.ts）
 
-以下は、移行先のAWSアカウントで暗号化されたスナップショットを復元するためのIAMポリシーの例です。
+import { RDSClient, DescribeDBSnapshotsCommand, DeleteDBSnapshotCommand } from "@aws-sdk/client-rds";
 
-A. Redshiftスナップショットの復元用ポリシー
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "redshift:RestoreFromClusterSnapshot",
-                "redshift:DescribeClusterSnapshots",
-                "redshift:DescribeClusters"
-            ],
-            "Resource": "*"
+/**
+ * 7日以上経過した手動スナップショットを自動削除するLambdaハンドラー
+ */
+export const handler = async (): Promise<void> => {
+  const rdsClient = new RDSClient({});
+  const now = new Date();
+  const cutoffDate = new Date(now.getTime());
+  cutoffDate.setDate(cutoffDate.getDate() - 7); // 7日前
+  
+  console.log(`Deleting manual snapshots older than: ${cutoffDate.toISOString()}`);
+
+  let marker: string | undefined = undefined;
+
+  try {
+    do {
+      const describeCommand = new DescribeDBSnapshotsCommand({
+        SnapshotType: "manual", // manualスナップショットのみ取得
+        Marker: marker
+      });
+      const response = await rdsClient.send(describeCommand);
+
+      const snapshots = response.DBSnapshots;
+      marker = response.Marker;
+
+      if (snapshots && snapshots.length > 0) {
+        for (const snapshot of snapshots) {
+          if (!snapshot.DBSnapshotIdentifier || !snapshot.SnapshotCreateTime) {
+            continue; // 何らかの理由で値がない場合はskip
+          }
+
+          const snapshotDate = snapshot.SnapshotCreateTime;
+          // 7日以上前なら削除
+          if (snapshotDate < cutoffDate) {
+            console.log(`Deleting snapshot: ${snapshot.DBSnapshotIdentifier} (Created at: ${snapshotDate.toISOString()})`);
+            await rdsClient.send(
+              new DeleteDBSnapshotCommand({
+                DBSnapshotIdentifier: snapshot.DBSnapshotIdentifier
+              })
+            );
+          }
         }
-    ]
+      }
+    } while (marker);
+
+    console.log("Completed deleting old manual snapshots.");
+  } catch (error) {
+    console.error("Error deleting snapshots:", error);
+    throw error;
+  }
+};
+
+ポイントは以下です:
+* 手動スナップショットのみ (SnapshotType: "manual") を取得。
+* describeDBSnapshots の結果が多い場合に備えて Marker を使ったループ。
+* 取得日時 (SnapshotCreateTime) が7日以上前かどうかを判定。
+* 条件に合うスナップショットを DeleteDBSnapshot コマンドで削除。
+
+コード全体の目的
+この Lambda 関数は、手動スナップショット（manual） のうち作成日から7日以上経過したものを自動的に削除するためのものです。 AWS RDS のスナップショットには「自動スナップショット (automated)」と「手動スナップショット (manual)」がありますが、ここでは手動スナップショットのみを対象としています。
+
+インポート文
+import { RDSClient, DescribeDBSnapshotsCommand, DeleteDBSnapshotCommand } from "@aws-sdk/client-rds";
+
+* RDSClient: AWS SDK for JavaScript (v3) の RDS クライアントです。
+    * RDS（Relational Database Service）に対して API リクエストを行うためのクラス。
+* DescribeDBSnapshotsCommand:
+    * RDS に対して、「DBスナップショットの一覧を取得」する API コール（describeDBSnapshots）を行うためのコマンド。
+* DeleteDBSnapshotCommand:
+    * RDS に対して、「DBスナップショットを削除」する API コール（deleteDBSnapshot）を行うためのコマンド。
+
+これらのクラスを使うことで、RDS スナップショットに関する操作（一覧取得・削除）ができます。
+
+ハンドラー（handler）関数
+export const handler = async (): Promise<void> => {
+  ...
+};
+
+* Lambda 関数として実行されるエントリーポイント。
+* 非同期関数（async) で定義し、戻り値の型として Promise<void> を指定しています。
+    * 処理結果として特に値は返さず、完了やエラーを示すだけ。
+内部の処理を順を追って見ていきます。
+
+1. RDSクライアントの生成
+
+const rdsClient = new RDSClient({});
+
+* AWS SDK を利用して RDS にアクセスするためのクライアントインスタンスを生成します。
+* 引数を空オブジェクトで指定していますが、通常はデフォルト認証情報（Lambda の実行ロールなど）およびデフォルト設定を使ってアクセスします。
+
+2. 基準日（7日前）の計算
+
+const now = new Date();
+const cutoffDate = new Date(now.getTime());
+cutoffDate.setDate(cutoffDate.getDate() - 7); // 7日前
+
+console.log(`Deleting manual snapshots older than: ${cutoffDate.toISOString()}`);
+
+* now に現在日時を取得（new Date()）。
+* cutoffDate は now と同じ時刻を初期値としていますが、setDate() を使って 7 日前 に設定し直しています。
+* したがって、 cutoffDate は 「今から 7 日前の日時」 になります。
+* ログ出力で、どの時刻より古いスナップショットを削除対象とするかを明示しています。
+
+3. marker の初期化
+
+let marker: string | undefined = undefined;
+
+* なぜ marker が必要なのか？
+    * DescribeDBSnapshots の結果が多い場合、AWS の API は一度に全件返さず ページ分割 (Pagination) をすることがあります。
+    * このとき、レスポンスに Marker フィールドが返ってきたら、「まだ続きがある」ことを示すためのカーソルのような役割をします。
+    * 2回目以降の呼び出しに、この Marker をリクエストに渡すことで次のページを取得できます。
+
+4. try ~ catch 構文
+
+try {
+  do {
+    ...
+  } while (marker);
+} catch (error) {
+  console.error("Error deleting snapshots:", error);
+  throw error;
 }
 
-B. KMSキーのアクセス権付与用ポリシー
+* スナップショットを削除する一連の処理を try ブロックにまとめており、エラー発生時にはログを出力しつつ再度 throw して Lambda 全体が失敗するようにしています。
+* ここで do { ... } while (marker); を使っているのは、「ページングがある限り繰り返し」を行うためです。
+    * 具体的には、marker があれば次ページがあるという意味になるので、ループを継続します。
 
-{
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": [
-                "kms:Decrypt",
-                "kms:DescribeKey"
-            ],
-            "Resource": "arn:aws:kms:source-region:source-account-id:key/source-key-id"
-        }
-    ]
+5. DescribeDBSnapshots を呼び出す
+
+const describeCommand = new DescribeDBSnapshotsCommand({
+  SnapshotType: "manual", // manualスナップショットのみ取得
+  Marker: marker
+});
+const response = await rdsClient.send(describeCommand);
+
+* DescribeDBSnapshotsCommand は SnapshotType: "manual" を指定しています。
+    * これにより自動スナップショットは除外され、手動スナップショットのみ取得できます。
+* Marker プロパティには、前回のレスポンスで取得した marker を渡しています。
+* await rdsClient.send(...) で実際に RDS API を呼び出し、結果を response として受け取ります。
+
+6. レスポンスからスナップショット一覧と Marker を取得
+
+const snapshots = response.DBSnapshots;
+marker = response.Marker;
+
+response.DBSnapshots には、手動スナップショットの情報オブジェクトが配列として格納されます。
+response.Marker は、次のページが存在する場合にセットされるトークン。
+* 存在しない（最終ページ）場合は undefined になります。
+
+7. スナップショット一覧の処理
+
+if (snapshots && snapshots.length > 0) {
+  for (const snapshot of snapshots) {
+    if (!snapshot.DBSnapshotIdentifier || !snapshot.SnapshotCreateTime) {
+      continue; // 必須情報がない場合はスキップ
+    }
+
+    const snapshotDate = snapshot.SnapshotCreateTime;
+    // 7日以上前なら削除
+    if (snapshotDate < cutoffDate) {
+      console.log(`Deleting snapshot: ${snapshot.DBSnapshotIdentifier} (Created at: ${snapshotDate.toISOString()})`);
+      await rdsClient.send(
+        new DeleteDBSnapshotCommand({
+          DBSnapshotIdentifier: snapshot.DBSnapshotIdentifier
+        })
+      );
+    }
+  }
 }
 
-	•	source-region:
-	•	移行元のKMSキーが存在するリージョン。
-	•	source-account-id:
-	•	移行元のAWSアカウントID。
-	•	source-key-id:
-	•	移行元でスナップショット暗号化に使用されたKMSキーのIDまたはARN。
+* if (snapshots && snapshots.length > 0) { ... }
+    * 返ってきたスナップショット一覧が空ではない場合のみループ処理をする。
+* if (!snapshot.DBSnapshotIdentifier || !snapshot.SnapshotCreateTime) { continue; }
+    * スナップショットの識別子（DBSnapshotIdentifier）とスナップショット作成日時（SnapshotCreateTime）が存在しないものは処理できないのでスキップ。
+* snapshot.SnapshotCreateTime はスナップショットの作成日時。
+    * これが cutoffDate（7 日前）より古い (= 作成日時が 7 日以上前) かどうかを判定しています。
+* 古い場合:
+    * ログを出して削除対象であることを明示し、DeleteDBSnapshotCommand を呼び出し、実際に削除を実行。
+    * DBSnapshotIdentifier だけ指定すれば削除できます。
+
+8. ループ終了後のログ出力
+
+console.log("Completed deleting old manual snapshots.");
+
+* すべてのページング処理が終わり、手動スナップショットの削除が完了した後に出力されるログ。
+* 実際にはページが複数ある場合、ループが完了するまで marker が更新され続け、最後のページが終わったタイミングでログを出すイメージです。
+
+9. キャッチブロック
+
+} catch (error) {
+  console.error("Error deleting snapshots:", error);
+  throw error;
+}
+
+処理中にエラーが発生した場合、その内容をログに出力し、再度エラーを throw しています。
+* Lambda でエラーをスローすると、Lambda としては失敗状態になります。
+
+処理の概要フロー
+1. 現在日時を取得し、7日前の日時を計算する。
+2. RDS の「手動スナップショットのみ」を DescribeDBSnapshots で取得する。
+    * ページング対応のため、Marker が存在する限りループを続ける。
+3. スナップショット一覧の各スナップショットに対して、7日以上前のものを削除する。
+4. 最終的に削除がすべて完了したらログを出力する。
+5. 途中でエラーがあればログ出力してエラーを再スロー。
+
+補足: ポイントまとめ
+1. 手動スナップショットのみ対象とするため、SnapshotType: "manual" を指定。
+2. スナップショット削除の判定は SnapshotCreateTime < cutoffDate をチェック。
+3. ページング対応のため Marker を使ったループを実装。
+4. RDS のスナップショットを削除するには DBSnapshotIdentifier が必要なので、念のため存在をチェックしている。
+5. 削除前にログを出力することで、どのスナップショットが削除されたかを追跡できる。
+
+以上が、この Lambda 関数のコードの詳細説明です。今後、特定の条件で削除処理を分岐したり、削除前に通知を行ったりする場合は、この構成をベースに修正を行えば柔軟に対応できます。
+
+
+2. CDK スタック定義（my-stack.ts）
+
+import * as cdk from "aws-cdk-lib";
+import { Construct } from "constructs";
+import { Runtime, Code, Function } from "aws-cdk-lib/aws-lambda";
+import { Rule, Schedule } from "aws-cdk-lib/aws-events";
+import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
+import { PolicyStatement, Effect } from "aws-cdk-lib/aws-iam";
+import * as path from "path";
+
+export class MyStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    // Lambda関数を作成
+    const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
+      runtime: Runtime.NODEJS_22_X, // Node.js 22
+      code: Code.fromAsset(path.join(__dirname, "lambda")), // ディレクトリを指定
+      handler: "deleteSnapshots.handler",
+      // 環境変数など必要に応じて設定
+      // environment: {
+      //   ...
+      // }
+    });
+
+    // RDS スナップショットに対する権限付与（Describe, Delete）
+    deleteSnapshotsLambda.addToRolePolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: [
+          "rds:DescribeDBSnapshots",
+          "rds:DeleteDBSnapshot"
+        ],
+        resources: ["*"] // 必要に応じてリソースを絞る場合はARNで指定
+      })
+    );
+
+    // イベントブリッジのスケジュールルール (例: 毎日午前0時に実行)
+    const rule = new Rule(this, "DeleteOldSnapshotsScheduleRule", {
+      schedule: Schedule.cron({
+        minute: "0",
+        hour: "0"
+      })
+    });
+
+    // ルールのターゲットに上記 Lambda を登録
+    rule.addTarget(new LambdaFunction(deleteSnapshotsLambda));
+  }
+}
+
+ポイント
+1. Lambda 関数設定:
+    * runtime: Runtime.NODEJS_22_X で Node.js 22 のランタイムを指定しています。
+    * handler には deleteSnapshots.handler（deleteSnapshots.ts 内の handler 関数）を指定します。
+    * コードは Code.fromAsset(path.join(__dirname, "lambda")) で、my-stack.ts と同階層の lambda ディレクトリを指定しています。
+2. 必要な IAM ポリシーの付与:
+    * RDS のスナップショットを参照 (DescribeDBSnapshots) し、かつ削除 (DeleteDBSnapshot) する必要があるため、Lambda の実行ロールにそれらのアクションを許可するポリシーを追加しています。
+3. EventBridge ルール設定:
+    * Cron 式を使用し、毎日 0 時 0 分に実行するよう設定しています。rule.addTarget で Lambda 関数をターゲットに指定します。
+    * スケジュールの粒度や曜日指定などは Schedule.cron({ ... }) で自由に変更可能です。
+
+以下の CDK (Cloud Development Kit) スタック定義では、Lambda 関数とEventBridge ルールを作成し、「7日以上経過した手動スナップショットを自動削除する」Lambda を毎日特定の時間に実行する仕組みを構築しています。項目ごとに何をやっているかを説明します。
+
+1. インポート文
+
+import * as cdk from "aws-cdk-lib";
+import { Construct } from "constructs";
+import { Runtime, Code, Function } from "aws-cdk-lib/aws-lambda";
+import { Rule, Schedule } from "aws-cdk-lib/aws-events";
+import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
+import { PolicyStatement, Effect } from "aws-cdk-lib/aws-iam";
+import * as path from "path";
+
+aws-cdk-lib: CDK のコアライブラリ。スタックやリソースを定義するためのモジュールが含まれています。
+constructs: CDK が採用しているプログラミングモデルの基礎となる “Construct” を使うためのライブラリです。
+aws-lambda: Lambda 関数を作成・設定するためのクラス (Function, Runtime, Code など) が含まれています。
+aws-events: EventBridge（旧 CloudWatch Events）のルール (Rule) やスケジュール (Schedule) を定義するためのクラスが含まれています。
+aws-events-targets: イベントのターゲットとして Lambda 関数や他のサービスを指定するためのクラス（LambdaFunction など）。
+aws-iam: IAM ロールやポリシー (PolicyStatement, Effect) を定義するクラスが含まれています。
+path: Node.js 標準ライブラリ。ファイル/ディレクトリパスの操作に便利。
+
+2. クラス宣言
+
+export class MyStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+    
+    ...
+  }
+}
+
+MyStack: CDK スタックを表すクラス。
+* ここで定義したリソース（Lambda 関数や EventBridge ルールなど）が、デプロイ時に CloudFormation テンプレートとして作られ、AWS 上にリソースが構築されます。
+constructor: スタックの初期化処理。ここで Lambda や EventBridge の設定が行われます。
+
+3. Lambda 関数の作成
+
+const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
+  runtime: Runtime.NODEJS_22_X, // Node.js 22
+  code: Code.fromAsset(path.join(__dirname, "lambda")), // ディレクトリを指定
+  handler: "deleteSnapshots.handler",
+  // 環境変数など必要に応じて設定
+  // environment: {
+  //   ...
+  // }
+});
+
+new Function(...): Lambda 関数を生成するためのコンストラクト。
+this: CDK スタックのコンストラクトスコープ。
+DeleteOldSnapshotsLambda: リソース名（物理名ではなく論理IDとなる）。
+Lambda のプロパティ:
+* runtime: Runtime.NODEJS_22_X
+    * 使いたいランタイムを指定。Node.js 22 のランタイムで実行される Lambda となります。
+* code: Code.fromAsset(...)
+    * Lambda のコードをどこから取得するかを設定します。fromAsset はローカルファイルを zip 化してデプロイする仕組み。
+    * path.join(__dirname, "lambda") を指定することで、スタックファイル (my-stack.ts) と同階層にある lambda ディレクトリがコードとして扱われます。
+* handler: "deleteSnapshots.handler"
+    * Lambda 関数を呼び出す際のハンドラを指定。例えば deleteSnapshots.ts 内にある export const handler を使うイメージです。
+* (コメントアウトされている environment は、必要に応じて Lambda 環境変数を設定するときに使われます。)
+
+4. IAM ポリシーの付与
+
+deleteSnapshotsLambda.addToRolePolicy(
+  new PolicyStatement({
+    effect: Effect.ALLOW,
+    actions: [
+      "rds:DescribeDBSnapshots",
+      "rds:DeleteDBSnapshot"
+    ],
+    resources: ["*"]
+  })
+);
+
+* 生成した Lambda 関数には、実行時に自動で IAM ロールが割り当てられます。
+* ここで addToRolePolicy(...) を使うことで、そのロールに追加のパーミッションを付与できます。
+* PolicyStatement では、以下の内容を指定しています。
+    1. effect: Effect.ALLOW
+        * ポリシーの効果を「Allow（許可）」にする。
+    2. actions
+        * Lambda から実行できるアクション（API）の一覧。
+        * ここでは RDS の「スナップショットの参照 (DescribeDBSnapshots)」「スナップショットの削除 (DeleteDBSnapshot)」が含まれています。
+    3. resources: ["*"]
+        * リソース ARN の指定。今回は *（すべて）ですが、必要に応じて対象のスナップショット ARN を指定することも可能です。
+
+これにより、Lambda 関数が RDS のスナップショットを取得・削除できるようになります。
+
+5. EventBridge (スケジュールルール)
+
+const rule = new Rule(this, "DeleteOldSnapshotsScheduleRule", {
+  schedule: Schedule.cron({
+    minute: "0",
+    hour: "0"
+  })
+});
+
+* new Rule(...): EventBridge のルールを定義するためのコンストラクトです。
+* DeleteOldSnapshotsScheduleRule: このルールの論理ID。
+* schedule: Schedule.cron(...):
+    * スケジュール式（Cron 表記）で、いつイベントを発火するかを指定。
+    * minute: "0", hour: "0" は、毎日 0 時 0 分 (深夜0時) にイベントが発火する、という意味になります。
+    * 例として、minute: "0", hour: "0", day: "*", etc. などで柔軟に指定できます。
+
+6. ルールのターゲット設定
+
+rule.addTarget(new LambdaFunction(deleteSnapshotsLambda));
+
+作成したルールが発火した際に、どのリソースを呼び出すかを指定します。
+new LambdaFunction(...) に上記で作成した deleteSnapshotsLambda を渡しています。
+* つまり、毎日 0 時 0 分に deleteSnapshotsLambda が自動実行されるようになります。
+
+まとめ
+1. Lambda 関数 (deleteSnapshotsLambda) を Node.js 22 ランタイムで作成。
+    * ディレクトリ lambda にあるコードをデプロイ対象とし、ハンドラは deleteSnapshots.handler を指定。
+2. IAM ポリシー を Lambda の実行ロールに付与。
+    * RDS のスナップショットの一覧取得・削除ができる権限を付与。
+3. EventBridge のルール (DeleteOldSnapshotsScheduleRule) を作成。
+    * スケジュールを Cron 式で設定し、毎日 0 時 0 分に発火させる。
+4. ルールのターゲット として、deleteSnapshotsLambda を指定。
+    * 指定時刻に自動で Lambda 関数が実行される。
+
+このスタックを cdk deploy すると、Lambda 関数・EventBridge のスケジュール・IAM 設定を含む一連のリソースが AWS 上に構築されます。 実行時、Lambda のコード側で RDS スナップショットを古い順に削除するロジックが動き、自動削除が実現されます。
+
+
+3. CDK アプリケーションエントリーポイント（bin/cdk-app.ts）
+
+#!/usr/bin/env node
+import * as cdk from "aws-cdk-lib";
+import { MyStack } from "../lib/my-stack";
+
+const app = new cdk.App();
+new MyStack(app, "MySnapshotCleanerStack", {
+  // スタック名やリージョンなど必要であれば指定
+  // env: { region: "ap-northeast-1" },
+});
+
+ここでは単純に MyStack を new しています。
+必要に応じて env にリージョンやアカウントを指定してください。
+
+4. デプロイ & 動作確認
+
+1. CDK デプロイ
+
+cdk deploy
+
+1. 正常にデプロイされると、Lambda 関数と EventBridge ルールが作成されます。
+2. 動作確認
+    * デフォルトでは、毎日 0 時に自動実行されます。
+    * すぐにテストしたい場合は、コンソールや CLI から手動で Lambda 関数を実行してください。
+    * ログは CloudWatch Logs の Lambda ロググループで確認可能です。
+
+まとめ
+* Lambda + EventBridge + CDK(TypeScript) で「7日以上前の手動スナップショットを自動削除」する仕組みを構築しました。
+* ランタイムは Runtime.NODEJS_22_X で指定可能です。
+* Lambda 内部では、AWS SDK for JavaScript (v3) を使って RDS のスナップショットを取得・削除しています。
+
+このサンプルコードをベースに、実運用に必要な要件（ログ出力フォーマット、通知機能、削除前の検証など）を適宜追加してご利用ください。
