@@ -354,7 +354,8 @@ export class MyStack extends cdk.Stack {
       // 環境変数にトピックARNを渡す
       environment: {
         SNAPSHOT_DELETE_FAILURE_TOPIC_ARN: snapshotDeleteFailureTopic.topicArn
-      }
+      },
+      description: "Deletes manual RDS snapshots older than 7 days, triggered daily."
     });
 
     //
@@ -383,7 +384,8 @@ export class MyStack extends cdk.Stack {
       schedule: Schedule.cron({
         minute: "0",
         hour: "0"
-      })
+      }),
+      description: "Triggers the snapshot deletion Lambda function daily at UTC 0:00."
     });
 
     rule.addTarget(new LambdaFunction(deleteSnapshotsLambda));
