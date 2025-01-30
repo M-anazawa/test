@@ -1,3 +1,4 @@
+
 以下の手順・サンプルコード例では、CDK (TypeScript) を使用し、
 * Node.js 22 ランタイムの Lambda 関数
 * EventBridge (旧 CloudWatch Events) のスケジュールトリガー
@@ -37,12 +38,15 @@
 1. Lambda 関数のコード（deleteSnapshots.ts）
 
 import { RDSClient, DescribeDBSnapshotsCommand, DeleteDBSnapshotCommand } from "@aws-sdk/client-rds";
+import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
 
-/**
- * 7日以上経過した手動スナップショットを自動削除するLambdaハンドラー
- */
 export const handler = async (): Promise<void> => {
   const rdsClient = new RDSClient({});
+  const snsClient = new SNSClient({});
+
+  // 環境変数からSNSトピックARNを取得
+  const snsTopicArn = process.env.SNAPSHOT_DELETE_FAILURE_TOPIC_ARN;
+
   const now = new Date();
   const cutoffDate = new Date(now.getTime());
   cutoffDate.setDate(cutoffDate.getDate() - 7); // 7日前
@@ -54,7 +58,7 @@ export const handler = async (): Promise<void> => {
   try {
     do {
       const describeCommand = new DescribeDBSnapshotsCommand({
-        SnapshotType: "manual", // manualスナップショットのみ取得
+        SnapshotType: "manual",
         Marker: marker
       });
       const response = await rdsClient.send(describeCommand);
@@ -65,7 +69,7 @@ export const handler = async (): Promise<void> => {
       if (snapshots && snapshots.length > 0) {
         for (const snapshot of snapshots) {
           if (!snapshot.DBSnapshotIdentifier || !snapshot.SnapshotCreateTime) {
-            continue; // 何らかの理由で値がない場合はskip
+            continue; // 値がない場合はskip
           }
 
           const snapshotDate = snapshot.SnapshotCreateTime;
@@ -85,6 +89,23 @@ export const handler = async (): Promise<void> => {
     console.log("Completed deleting old manual snapshots.");
   } catch (error) {
     console.error("Error deleting snapshots:", error);
+
+    // --- ここでSNS通知を行う ---
+    if (snsTopicArn) {
+      try {
+        const params = {
+          TopicArn: snsTopicArn,
+          Subject: "RDS Snapshot Deletion Failed",
+          Message: `An error occurred while deleting RDS snapshots.\n\nError: ${error}`
+        };
+        await snsClient.send(new PublishCommand(params));
+        console.log("Failure notification sent to SNS.");
+      } catch (publishError) {
+        console.error("Failed to publish SNS notification:", publishError);
+      }
+    }
+
+    // エラーを再スローしてLambda自体を失敗状態にする
     throw error;
   }
 };
@@ -251,6 +272,18 @@ console.log("Completed deleting old manual snapshots.");
 
 以上が、この Lambda 関数のコードの詳細説明です。今後、特定の条件で削除処理を分岐したり、削除前に通知を行ったりする場合は、この構成をベースに修正を行えば柔軟に対応できます。
 
+以下はメール通知について
+
+SNSクライアント (SNSClient) のインポート:
+import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
+
+環境変数 SNAPSHOT_DELETE_FAILURE_TOPIC_ARN の取得:
+const snsTopicArn = process.env.SNAPSHOT_DELETE_FAILURE_TOPIC_ARN;
+
+スナップショット削除処理が失敗したら (catch ブロック内で):
+* エラーログを出しつつ、SNS へ Publish。
+* publishError が起きた場合もログに残しつつ、最終的に元のエラーを throw error; しています（Lambda 全体を失敗状態にする）。
+
 
 2. CDK スタック定義（my-stack.ts）
 
@@ -261,23 +294,44 @@ import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { PolicyStatement, Effect } from "aws-cdk-lib/aws-iam";
 import * as path from "path";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 
 export class MyStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Lambda関数を作成
-    const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
-      runtime: Runtime.NODEJS_22_X, // Node.js 22
-      code: Code.fromAsset(path.join(__dirname, "lambda")), // ディレクトリを指定
-      handler: "deleteSnapshots.handler",
-      // 環境変数など必要に応じて設定
-      // environment: {
-      //   ...
-      // }
+    //
+    // 1. SNSトピックの作成
+    //
+    const snapshotDeleteFailureTopic = new sns.Topic(this, "SnapshotDeleteFailureTopic", {
+      displayName: "Snapshot Deletion Failure Topic"
     });
 
-    // RDS スナップショットに対する権限付与（Describe, Delete）
+    //
+    // 2. SNSにメール購読を追加
+    //
+    // 例: "example@example.com" を購読させる
+    snapshotDeleteFailureTopic.addSubscription(
+      new subs.EmailSubscription("example@example.com")
+    );
+
+    //
+    // 3. Lambda関数の作成
+    //
+    const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
+      runtime: Runtime.NODEJS_22_X, // Node.js 22
+      code: Code.fromAsset(path.join(__dirname, "lambda")),
+      handler: "deleteSnapshots.handler",
+      // 環境変数にトピックARNを渡す
+      environment: {
+        SNAPSHOT_DELETE_FAILURE_TOPIC_ARN: snapshotDeleteFailureTopic.topicArn
+      }
+    });
+
+    //
+    // 4. RDS スナップショットに対する権限付与（Describe, Delete）
+    //
     deleteSnapshotsLambda.addToRolePolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -285,11 +339,18 @@ export class MyStack extends cdk.Stack {
           "rds:DescribeDBSnapshots",
           "rds:DeleteDBSnapshot"
         ],
-        resources: ["*"] // 必要に応じてリソースを絞る場合はARNで指定
+        resources: ["*"]
       })
     );
 
-    // イベントブリッジのスケジュールルール (例: 毎日午前0時に実行)
+    //
+    // 5. Lambda が SNS へPublishする権限を付与
+    //
+    snapshotDeleteFailureTopic.grantPublish(deleteSnapshotsLambda);
+
+    //
+    // 6. イベントブリッジ ルール(例: 毎日午前0時実行)
+    //
     const rule = new Rule(this, "DeleteOldSnapshotsScheduleRule", {
       schedule: Schedule.cron({
         minute: "0",
@@ -297,7 +358,6 @@ export class MyStack extends cdk.Stack {
       })
     });
 
-    // ルールのターゲットに上記 Lambda を登録
     rule.addTarget(new LambdaFunction(deleteSnapshotsLambda));
   }
 }
@@ -434,6 +494,20 @@ new LambdaFunction(...) に上記で作成した deleteSnapshotsLambda を渡し
 
 このスタックを cdk deploy すると、Lambda 関数・EventBridge のスケジュール・IAM 設定を含む一連のリソースが AWS 上に構築されます。 実行時、Lambda のコード側で RDS スナップショットを古い順に削除するロジックが動き、自動削除が実現されます。
 
+以下は、メール通知について
+
+SNS トピックを定義:
+* new sns.Topic(...) で SNS トピックを作成。
+* displayName はトピックの表示名(コンソール等用)で自由に設定可能。
+Eメール購読:
+* snapshotDeleteFailureTopic.addSubscription(new subs.EmailSubscription("..."));
+* メールアドレスを指定すると、そのアドレスに サブスクリプション確認メール が届きます。
+* メール内のリンクをクリックして購読承認すると、有効なサブスクリプションとなり、以後 SNS からの Publish でメールが届きます。
+Lambda の環境変数:
+* SNAPSHOT_DELETE_FAILURE_TOPIC_ARN に SNSトピックの ARN を渡します。
+* Lambda コードでこれを参照し、失敗時に Publish する。
+Lambda が SNS を Publish できるよう snapshotDeleteFailureTopic.grantPublish(deleteSnapshotsLambda); で権限を付与。
+
 
 3. CDK アプリケーションエントリーポイント（bin/cdk-app.ts）
 
@@ -468,3 +542,55 @@ cdk deploy
 * Lambda 内部では、AWS SDK for JavaScript (v3) を使って RDS のスナップショットを取得・削除しています。
 
 このサンプルコードをベースに、実運用に必要な要件（ログ出力フォーマット、通知機能、削除前の検証など）を適宜追加してご利用ください。
+
+
+5. メール通知の仕組み
+AWS SNS は、Pub/Sub (Publisher/Subscriber) メッセージングサービス です。
+* Pub (Publish) = データを送る側
+* Sub (Subscribe) = データを受け取る側
+
+今回のケースでは:
+1. Lambda が「スナップショット削除エラー発生時」に PublishCommand を呼び出す。
+    * 送信先は SNS トピックの ARN。
+2. SNS トピック が受け取ったメッセージを、購読しているメールアドレス宛に転送（通知）する。
+    * メール購読の場合、EmailSubscription に指定したアドレスへ通知が飛ぶ。
+
+メリット:
+* SNS 側で購読先を増減するだけで、コードを修正することなく通知先を変更可能。
+* Publish は 1 回で済み、SNS が複数の購読先に通知することも簡単。
+
+
+メール通知の試験方法
+
+スナップショット削除処理が正常に完了した場合は通知されないため、わざと失敗させるテストを行うのがポイントです。 以下のような方法があります。
+
+1. Lambda のコードを一時的に失敗させる
+    * 例: 「存在しないスナップショット ID」を無理やり削除しようとするコードを入れて強制的に DeleteDBSnapshot が失敗するようにする。
+
+await rdsClient.send(
+  new DeleteDBSnapshotCommand({
+    DBSnapshotIdentifier: "NON_EXISTING_SNAPSHOT_ID"
+  })
+);
+
+    * これを実行すると RDS API が失敗し catch に入り、SNS によるメール送信が試せます。
+
+1. AWS CLI or AWSコンソール上から Lambda を手動実行してみる
+    * 例えば、コンソールの Lambda 画面から「テスト」実行を押してコードを動かす。
+    * 上記のようなエラーを仕込んだ状態ならメールが届くか確認可能。
+2. EventBridge のスケジュールを待つ
+    * 上記のエラーを仕込んでおいたまま、夜0時（などのスケジュール）を待つ方法もありますが、通常は手動テストが早いです。
+
+テストに際しての注意
+* SNS トピックのサブスクリプションはメールアドレス側で「購読承認」を完了しておく必要があります。
+    * CDK デプロイ後に example@example.com(指定したアドレス) に「AWS Notification - Subscription Confirmation」メールが飛んでくるので、文中の Confirm subscription リンクをクリックしてください。
+    * これをしないと SNS が Publish してもメールは届きません。
+
+
+メール通知のまとめ
+* 失敗時だけメールを送るには、Lambda コードの catch ブロック内で SNS に Publish するのがシンプル。
+* CDK 側では SNS トピック + メール購読を作り、Lambda へそのトピック ARN を渡す。
+* テスト方法は「強制的にスナップショット削除を失敗させる」「Lambda をコンソールから実行する」など。
+* SNS による EmailSubscription は、購読者が承認しないと通知が有効にならない点に注意。
+
+この構成であれば、毎日実行時にスナップショット削除が正常完了すれば通知はなく、失敗したときだけメールアラートが飛ぶようになります。
