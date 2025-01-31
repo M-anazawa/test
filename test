@@ -1,626 +1,214 @@
-以下の手順・サンプルコード例では、CDK (TypeScript) を使用し、
-* PYTHON_3_11 ランタイムの Lambda 関数
-* EventBridge (旧 CloudWatch Events) のスケジュールトリガー
-を使って、**「取得から7日以上経過した手動スナップショット（自動スナップショットは除く）を自動削除」**する方法を解説します。 概念的には次の流れです。
-
-1. Lambda 関数
-    * 「手動スナップショット」を一覧取得する。
-    * 取得結果のうち、「7 日以上前に作成されたスナップショット」を洗い出す。
-    * 上記に該当するスナップショットを DeleteDBSnapshot で削除する。
-2. EventBridge ルール
-    * 上記 Lambda 関数を1 日 1 回などのスケジュールで呼び出す。
-    * Cron 表記で「毎日深夜 0 時」などを指定できる。
-3. CDK コード構成
-    * MyStack のようなスタックを作成し、その中で
-        1. Lambda 関数の作成
-        2. Lambda 関数に必要な IAM ポリシー付与
-        3. EventBridge ルールの作成と Lambda のターゲット登録
-    * ランタイムは Runtime.PYTHON_3_11  を指定する。
-
-以下に最小限のサンプルコードを示します。
-
-ディレクトリ構成例
-.
-├── bin
-│   └── cdk-app.ts          // CDK のエントリーポイント
-└── lib
-    ├── my-stack.ts         // メインのスタック定義
-    └── lambda              // Lambda 関数のコード置き場
-        └── delete_snapshots.py
-
-* bin/cdk-app.ts CDK アプリケーションのエントリーポイント。MyStack をデプロイ。
-* lib/my-stack.ts スタック定義ファイル。Lambda 関数や EventBridge rule を定義。
-* lib/lambda/deleteSnapshots.ts 実際にスナップショットを削除するロジック。
-
-もちろん、フォルダ構成はプロジェクトによって変わって構いません。
-
-1. Lambda 関数のコード（delete_snapshots.py）
-
-import os
-import boto3
-import datetime
-import logging
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-def lambda_handler(event, context):
-    rds_client = boto3.client('rds')
-    sns_client = boto3.client('sns')
-
-    # SNS トピックの ARN を環境変数から取得
-    sns_topic_arn = os.environ.get("SNAPSHOT_DELETE_FAILURE_TOPIC_ARN")
-
-    # 現在日時と 7 日前の日時を計算
-    now = datetime.datetime.utcnow()
-    cutoff_date = now - datetime.timedelta(days=7)
-    logger.info(f"Deleting manual snapshots older than: {cutoff_date.isoformat()}")
-
-    marker = None
-
-    try:
-        while True:
-            response = rds_client.describe_db_snapshots(
-                SnapshotType='manual',
-                Marker=marker
-            )
-
-            snapshots = response.get('DBSnapshots', [])
-            marker = response.get('Marker')
-
-            for snapshot in snapshots:
-                snapshot_id = snapshot.get('DBSnapshotIdentifier')
-                snapshot_time = snapshot.get('SnapshotCreateTime')
-
-                # 必須フィールドがなければスキップ
-                if not snapshot_id or not snapshot_time:
-                    continue
-
-                # SnapshotCreateTime は datetime.datetime 型
-                # 7日以上前かどうか判定
-                if snapshot_time < cutoff_date:
-                    logger.info(f"Deleting snapshot: {snapshot_id} (Created at: {snapshot_time.isoformat()})")
-                    rds_client.delete_db_snapshot(
-                        DBSnapshotIdentifier=snapshot_id
-                    )
-
-            # ページがもう無ければループ終了
-            if not marker:
-                break
-
-        logger.info("Completed deleting old manual snapshots.")
-
-    except Exception as e:
-        logger.error(f"Error deleting snapshots: {e}", exc_info=True)
-
-        # 失敗時のみ SNS 通知する
-        if sns_topic_arn:
-            try:
-                sns_client.publish(
-                    TopicArn=sns_topic_arn,
-                    Subject="RDS Snapshot Deletion Failed",
-                    Message=f"An error occurred while deleting RDS snapshots.\n\nError: {e}"
-                )
-                logger.info("Failure notification sent to SNS.")
-            except Exception as pub_err:
-                logger.error(f"Failed to publish SNS notification: {pub_err}", exc_info=True)
-
-        # Lambda 自体を失敗とするため、再度エラーを投げる
-        raise e
-
-ポイント
-1. boto3.client('rds') を使って RDS スナップショットを操作。
-2. describe_db_snapshots の結果が多い場合を考慮し、Marker を使ったループで全てのページを処理。
-3. スナップショット作成日時 (SnapshotCreateTime) が 7 日より前かどうかを判定して削除 (delete_db_snapshot)。
-4. try/except で失敗した時のみ SNS に通知し、Lambda はエラー終了する。
-
-まとめ
-* Node.js 22 の Lambda 関数を、Python 3.11 ランタイムへ置き換えたサンプルを示しました。
-* 処理内容は同じで、「7 日以上経過した手動スナップショット削除 + 失敗時は SNS 通知」です。
-* Python 版では boto3 による RDS / SNS 操作を行い、EventBridge でスケジュール実行・SNS メール購読は CDK 側で設定します。
-
-1. インポートとロガー設定
-
-import os
-import boto3
-import datetime
-import logging
-
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-1. os
-    * 環境変数を読み込むために使用します（例: os.environ.get(...)）。
-2. boto3
-    * AWS SDK for Python です。RDS や SNS を操作するクライアントを生成するのに使います。
-3. datetime
-    * 日時を操作する標準ライブラリ。今回のコードでは「7 日前の日付」や「スナップショットの作成日時」を扱うために使用します。
-4. logging
-    * ログ出力を行うために使用します。Lambda のコンソールログ (CloudWatch Logs) で確認できます。
-ロギング設定
-* logger = logging.getLogger() は、ルートロガーのインスタンスを取得し、logger.setLevel(logging.INFO) でログレベルを INFO に設定しています。
-* これにより、.info() や .error()、.warning() などのログメッセージが出力されます。
-
-2. ラムダハンドラー（lambda_handler）
-
-def lambda_handler(event, context):
-    rds_client = boto3.client('rds')
-    sns_client = boto3.client('sns')
-
-    # SNS トピックの ARN を環境変数から取得
-    sns_topic_arn = os.environ.get("SNAPSHOT_DELETE_FAILURE_TOPIC_ARN")
-
-    # 現在日時と 7 日前の日時を計算
-    now = datetime.datetime.utcnow()
-    cutoff_date = now - datetime.timedelta(days=7)
-    logger.info(f"Deleting manual snapshots older than: {cutoff_date.isoformat()}")
-
-    marker = None
-
-    try:
-        while True:
-            response = rds_client.describe_db_snapshots(
-                SnapshotType='manual',
-                Marker=marker
-            )
-
-            snapshots = response.get('DBSnapshots', [])
-            marker = response.get('Marker')
-
-            for snapshot in snapshots:
-                snapshot_id = snapshot.get('DBSnapshotIdentifier')
-                snapshot_time = snapshot.get('SnapshotCreateTime')
-
-                # 必須フィールドがなければスキップ
-                if not snapshot_id or not snapshot_time:
-                    continue
-
-                # 7日以上前かどうか判定 (snapshot_time は datetime.datetime 型)
-                if snapshot_time < cutoff_date:
-                    logger.info(f"Deleting snapshot: {snapshot_id} (Created at: {snapshot_time.isoformat()})")
-                    rds_client.delete_db_snapshot(
-                        DBSnapshotIdentifier=snapshot_id
-                    )
-
-            # 次ページがない場合はループ終了
-            if not marker:
-                break
-
-        logger.info("Completed deleting old manual snapshots.")
-
-    except Exception as e:
-        logger.error(f"Error deleting snapshots: {e}", exc_info=True)
-
-        # 失敗時のみ SNS 通知
-        if sns_topic_arn:
-            try:
-                sns_client.publish(
-                    TopicArn=sns_topic_arn,
-                    Subject="RDS Snapshot Deletion Failed",
-                    Message=f"An error occurred while deleting RDS snapshots.\n\nError: {e}"
-                )
-                logger.info("Failure notification sent to SNS.")
-            except Exception as pub_err:
-                logger.error(f"Failed to publish SNS notification: {pub_err}", exc_info=True)
-
-        # Lambda 自体を失敗状態にするため、再度エラーを投げる
-        raise e
-
-処理の流れ
-1. rds_client と sns_client の生成
-    * boto3.client('rds') と boto3.client('sns') で、それぞれ RDS と SNS を操作するクライアントを用意します。
-2. SNSトピック ARN の取得
-    * sns_topic_arn = os.environ.get("SNAPSHOT_DELETE_FAILURE_TOPIC_ARN")
-    * CDK などで Lambda の環境変数として渡された SNAPSHOT_DELETE_FAILURE_TOPIC_ARN を取得し、SNS 通知先のトピック ARN として使います。
-    * 存在しなければ None になります。
-3. 現在の日時 (now) と 7 日前 (cutoff_date) の計算
-    * now = datetime.datetime.utcnow() で現在の UTC 時刻を取得。
-    * cutoff_date = now - datetime.timedelta(days=7) で 7 日前を求めます。
-    * logger.info(...) でログに出すことで、どの日時より古いスナップショットを削除対象にしているか確認できます。
-4. marker の初期化
-    * marker = None
-    * Describe API でページネーション対応する際に必要です。次ページがあるかどうかを示す「ポインタ」のようなもの。
-5. try: ... except Exception as e:
-    * スナップショット削除の主処理を実行し、万一失敗（例外）した場合に SNS 通知を行うための仕組み。
-    * Python コードがここで捕まえたエラーをログ出力 (logger.error(...)) し、さらに SNS へ通知 (sns_client.publish(...)) を送信します。
-
-5.1 while True ループと describe_db_snapshots の呼び出し
-
-response = rds_client.describe_db_snapshots(
-    SnapshotType='manual',
-    Marker=marker
-)
-
-snapshots = response.get('DBSnapshots', [])
-marker = response.get('Marker')
-
-* SnapshotType='manual' を指定することで、手動スナップショットのみを取得します。
-* 結果が多い場合、describe_db_snapshots は 1 回の呼び出しで全件返さず Marker を返す場合があります。
-* 次ページがある場合は marker がセットされるので、それを利用して再度 describe_db_snapshots を呼び出します。
-
-5.2 スナップショット一覧をループ処理
-
-for snapshot in snapshots:
-    snapshot_id = snapshot.get('DBSnapshotIdentifier')
-    snapshot_time = snapshot.get('SnapshotCreateTime')
-
-    # ...
-    if snapshot_time < cutoff_date:
-        rds_client.delete_db_snapshot(
-            DBSnapshotIdentifier=snapshot_id
-        )
-
-* snapshot_id が DBSnapshotIdentifier, snapshot_time が SnapshotCreateTime というキーに格納されています。
-* もし必須のどちらかが欠けていれば continue（スキップ）。
-* snapshot_time < cutoff_date で **「作成日時が 7 日より前」**かどうかを判定し、古いものは削除します。
-* スナップショットを削除 (delete_db_snapshot) する際に DBSnapshotIdentifier が必要となります。
-
-5.3 マーカーが無くなればループ終了
-
-if not marker:
-    break
-
-* describe_db_snapshots のレスポンスに Marker が含まれなくなれば最終ページなのでループを抜けます。
-
-5.4 正常終了とログ
-
-logger.info("Completed deleting old manual snapshots.")
-
-* 問題なくすべてのスナップショットを処理し終わった場合、この行が実行されます。
-
-5.5 例外処理と SNS 通知
-
-except Exception as e:
-    logger.error(f"Error deleting snapshots: {e}", exc_info=True)
-
-    if sns_topic_arn:
-        try:
-            sns_client.publish(
-                TopicArn=sns_topic_arn,
-                Subject="RDS Snapshot Deletion Failed",
-                Message=f"An error occurred while deleting RDS snapshots.\n\nError: {e}"
-            )
-            logger.info("Failure notification sent to SNS.")
-        except Exception as pub_err:
-            logger.error(f"Failed to publish SNS notification: {pub_err}", exc_info=True)
-
-    # Lambda関数を失敗とするため再度エラーをスロー
-    raise e
-
-何らかの例外が発生した場合、この except ブロック内に入ります。
-.error(...) でログにエラーメッセージを出力。
-SNS トピック ARN が設定されていれば、SNS の Publish を試みる。
-* Subject: "RDS Snapshot Deletion Failed"
-* Message: 失敗内容として受け取った e のエラー情報を含めています。
-SNS の Publish も失敗する可能性があるため、再度 except を設けてログ出力しています。
-raise e を最後に呼ぶことで、Lambda 全体としては失敗状態となります。
-* これにより、イベントスケジュールなどから呼び出された際、失敗した事実を他の仕組み (例えば CloudWatch アラームなど) で捕捉できます。
-
-まとめ
-1. 最初の設定・準備
-    * boto3.client('rds') で RDS を操作するためのクライアント作成。
-    * boto3.client('sns') で SNS 通知を送るためのクライアント作成。
-    * 環境変数 SNAPSHOT_DELETE_FAILURE_TOPIC_ARN から SNS トピック ARN を取得。
-2. 7 日より古い手動スナップショットの削除
-    * describe_db_snapshots(SnapshotType='manual', Marker=...) で手動スナップショットを取得し、Marker を用いてページング処理。
-    * SnapshotCreateTime < cutoff_date (7 日前) なら delete_db_snapshot(...) で削除。
-3. 正常終了時
-    * 「完了」のログを出力し、lambda_handler 関数がエラーなく終了する。
-4. 失敗時
-    * except Exception as e: でエラーが捕まる。
-    * SNS トピックへ Publish (メール通知等) を送信し、Lambda は raise e で失敗状態を返す。
-
-この実装により、毎日実行する（EventBridgeのスケジュール）処理がエラーになると、メール等で通知を受けられるようになります。正常に終わった場合は通知は行われません。
-
-
-2. CDK スタック定義（my-stack.ts）
-
-import * as cdk from "aws-cdk-lib";
-import { Construct } from "constructs";
-import { Runtime, Code, Function } from "aws-cdk-lib/aws-lambda";
-import { Rule, Schedule } from "aws-cdk-lib/aws-events";
-import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
-import { PolicyStatement, Effect } from "aws-cdk-lib/aws-iam";
-import * as path from "path";
-import * as sns from "aws-cdk-lib/aws-sns";
-import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
-
-export class MyStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
-
-    //
-    // 1. SNSトピックの作成
-    //
-    const snapshotDeleteFailureTopic = new sns.Topic(this, "SnapshotDeleteFailureTopic", {
-      displayName: "Snapshot Deletion Failure Topic"
-    });
-
-    //
-    // 2. SNSにメール購読を追加
-    //
-    // 例: "example@example.com" を購読させる
-    snapshotDeleteFailureTopic.addSubscription(
-      new subs.EmailSubscription("example@example.com")
-    );
-
-    //
-    // 3. Lambda関数の作成
-    //
-    const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
-      runtime: Runtime.PYTHON_3_11,
-      code: Code.fromAsset(path.join(__dirname, "lambda")),
-      handler: "delete_snapshots.lambda_handler",
-      // 環境変数にトピックARNを渡す
-      environment: {
-        SNAPSHOT_DELETE_FAILURE_TOPIC_ARN: snapshotDeleteFailureTopic.topicArn
+AWSアカウントAにあるS3のデータをAWSアカウントBにあるS3に移行します。
+移行方法はAWSアカウントAにあるEC2から下記のAWS CLIを実行し、AWSアカウントAにあるインターフェース型S3エンドポイントを経由させます。
+この際、AWSアカウントBのS3バケットポリシー設定をAWSアカウントAのEC2に適用しているIAMロールとAWSアカウントAにあるインターフェース型S3エンドポイントのアンドで許可することは可能ですか？
+
+aws s3 sync [AWSアカウントAのS3パス] [AWSアカウントBのS3パス] --endpoint-url [エンドポイントDNS]
+
+
+結論として、「aws s3 sync s3://(AccountAバケット) s3://(AccountBバケット) を実行したときに発生する“Server-Side Copy (CopyObject)”リクエストを、Account A 側のインターフェース型S3エンドポイント経由に限定し、それを Account B 側のバケットポリシーで aws:sourceVpce と IAM ロールの両条件(AND)で許可する」ことは原則できません。
+
+理由を順を追って解説します。
+1. Server-Side Copy と VPCエンドポイントの関係
+aws s3 sync s3://source-bucket s3://dest-bucket のように ソースもデスティネーションも s3:// 指定の場合、AWS CLI は基本的に S3 の CopyObject または UploadPartCopy を使用した Server-Side Copy を行います。
+
+Server-Side Copy は、S3サービス内部でオブジェクトがコピーされる仕組みです。
+オブジェクトの実データは S3 内部 で完結し、VPC やインターネットを“通らない” ため、インターフェース型エンドポイント (VPC PrivateLink) が関与する経路にはなりません。
+CLI は何をしているのか
+AWS CLI は「どのオブジェクトをコピーするか」「どこへコピーするか」の制御プレーンとして、S3 API (CopyObject など) を呼び出します。
+しかし 実際のデータ転送 は S3 内部で完結します。そのため「aws:sourceVpce 条件を満たすネットワーク経路でオブジェクトをコピーする」といった制御はできません。
+なぜ aws:sourceVpce が機能しないのか
+S3バケットポリシーで aws:sourceVpce を使った条件は「VPCエンドポイント経由で届く データプレーンリクエスト（GET/PUTなど）に限定する」ためのものです。
+しかし Server-Side Copy の PUT や GET は「S3 が S3 に対して行う内部処理」であり、お客様の VPC からのリクエストではありません。そのため aws:sourceVpce は当てはまらず、VPC エンドポイントを強制することはできません。
+
+
+2. 「IAMロール＋VPCエンドポイント」の AND 条件付け自体は可能か
+バケットポリシーの書き方として は、以下のように「特定の IAM ロール (クロスアカウントロール)」かつ「aws:sourceVpce が指定のエンドポイントID」の両方を満たす場合に許可する、という構成自体は書くことが可能です。
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowPutObjectFromSpecificRoleAndVPCE",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:role/YourCrossAccountRole"
       },
-      description: "Deletes manual RDS snapshots older than 7 days, triggered daily."
-    });
-
-    //
-    // 4. RDS スナップショットに対する権限付与（Describe, Delete）
-    //
-    deleteSnapshotsLambda.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: [
-          "rds:DescribeDBSnapshots",
-          "rds:DeleteDBSnapshot"
-        ],
-        resources: ["*"]
-      })
-    );
-
-    //
-    // 5. Lambda が SNS へPublishする権限を付与
-    //
-    snapshotDeleteFailureTopic.grantPublish(deleteSnapshotsLambda);
-
-    //
-    // 6. イベントブリッジ ルール(例: 毎日午前0時実行)
-    //
-    const rule = new Rule(this, "DeleteOldSnapshotsScheduleRule", {
-      schedule: Schedule.cron({
-        minute: "0",
-        hour: "0"
-      }),
-      description: "Triggers the snapshot deletion Lambda function daily at UTC 0:00."
-    });
-
-    rule.addTarget(new LambdaFunction(deleteSnapshotsLambda));
-  }
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::YourBucketB/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:sourceVpce": "vpce-abcdefgh123456789"
+        }
+      }
+    }
+  ]
 }
+
+しかし、Server-Side Copy によるオブジェクト PUT/GET では aws:sourceVpce 条件がマッチしません（S3内部コピーのため）。結果的に 「BucketB へのコピーが拒否される」または「サーバーサイドコピー自体がエラーになる」 という挙動になります。
+
+
+3. インターフェース型エンドポイントを経由して転送したい場合
+もし「どうしても Account A 側のインターフェース型 S3 エンドポイント経由でデータを転送させたい」という要件がある場合は、**サーバーサイドコピーを使わず、EC2（CLI）に一度データをダウンロードしてからアップロードする“クライアントサイドコピー”**に切り替える必要があります。
+
+3.1 クライアントサイドコピーの流れ
+Account A の EC2 上で
+
+# （1）ソースバケット(S3) → EC2 へダウンロード
+aws s3 sync s3://(AccountAバケット) /local/path \
+    --endpoint-url https://vpce-xxx-yyy.s3.region.amazonaws.com
+
+# （2）EC2 → デスティネーションバケット(S3) へアップロード
+aws s3 sync /local/path s3://(AccountBバケット) \
+    --endpoint-url https://vpce-xxx-yyy.s3.region.amazonaws.com
+
+※ 上記の --endpoint-url でインターフェース型エンドポイントの Private DNS 名を指定
+オブジェクトデータの実転送は「VPC → S3」の経路となり、aws:sourceVpce 条件にマッチする。
+これにより、実際のオブジェクトデータ が VPC エンドポイントを経由して EC2 に入り、そこから再度 VPC エンドポイント経由でアップロードされます。
+
+バケットポリシーで aws:sourceVpce ＋ IAMロールを AND 条件にしていれば、アップロード (PUT) は許可されます。
+
+注意点
+データ容量が大きい場合、EC2 に一時的に保存するストレージが必要になるほか、転送時間・コストもサーバーサイドコピーより増加します。
+「どうしてもネットワーク経路を限定したい」「外部通信をさせたくない」というセキュリティ要件がある場合にのみ、この方式が選択されることが多いです。
+
+4. まとめ
+Server-Side Copy（aws s3 sync s3://～ s3://～ のデフォルト挙動）は、S3内部通信で完結するため VPCエンドポイントを経由しない。
+結果として、aws:sourceVpce 条件を使ったバケットポリシーとは相性が悪い（ほぼ拒否される）。
+「IAMロール × aws:sourceVpce の AND 条件」をバケットポリシーに書くこと自体は構文上可能。
+しかし Server-Side Copy ではその条件を満たせず、コピーが通らない。
+どうしてもインターフェース型エンドポイントを経由したデータ転送を行いたい場合
+クライアントサイドコピー (EC2に一度GET→再度PUT) を行うことで、VPC経由でのオブジェクト転送が可能になる。
+その際、バケットポリシーの aws:sourceVpce が機能するようになる。
+
+以上から、「バケットポリシーで Account A の EC2 が使う IAM ロール と インターフェース型S3エンドポイント を AND 条件にして許可する」こと自体は設定可能ですが、Server-Side Copy の場合は適用されずに失敗してしまう という点にご注意ください。もし本当に VPC 経由での転送制御を求めるのであれば、クライアントサイドコピー方式に変更する必要があります。
+
+
+
+
+
+
+次のように--endpoint-urlにインターフェース型S3エンドポイントDNSを指定した場合、S3への指令はインターフェース型S3エンドポイントを経由して行われ、デートの転送はAWSアカウントAのS3とAWSアカウントBのS3間で直接行われる認識であっていますか？
+
+aws s3 sync [AWSアカウントAのS3パス] [AWSアカウントBのS3パス] --endpoint-url [インターフェース型S3エンドポイントDNS]
+
+
+
+はい、その認識で正しいです。
+
+--endpoint-url に インターフェース型S3エンドポイントのDNS名 を指定すると、
+「AWS CLI が S3サービスへ送る APIリクエスト（制御プレーン通信）」はそのエンドポイント経由 で行われます。
+一方で、
+「実際のオブジェクトデータのコピー（データプレーン）」は、S3サービス内部での Server-Side Copy により、
+Account A の S3 と Account B の S3 間で直接やり取り されます。
+つまり、「APIリクエスト自体はインターフェース型エンドポイントを通るが、オブジェクトデータはEC2を経由せずにS3間でコピーされる」という挙動になります。
+
+
+
+
+
+
+aws s3 syncを実行するEC2に適用するIAMロールを必要最低限の内容で教えてください
+
+
+「必要最低限の権限」は状況によって若干異なりますが、一般的に aws s3 sync s3://ソースバケット s3://デスティネーションバケット を実行するだけなら、以下のアクションがあれば十分です。
+
+ソースバケット
+
+s3:ListBucket (バケット内のオブジェクト一覧を取得する)
+s3:GetObject (オブジェクトを読み出す)
+s3:GetBucketLocation (バケットのリージョン情報を取得する) ※CLI 内部で利用される場合がある
+デスティネーションバケット
+
+s3:ListBucket (同期時に差分比較のためバケット内一覧を取得する)
+s3:GetBucketLocation (同上)
+s3:PutObject (オブジェクトを書き込む)
+s3:AbortMultipartUpload (マルチパートアップロード途中で失敗した場合に中断するため)
+もし sync --delete オプションなどでデスティネーション側の不要オブジェクトを削除する場合は、さらに s3:DeleteObject が必要です。
+
+ポリシー例
+以下のように ソースバケット用 と デスティネーションバケット用 でステートメントを分けて記述します。
+
+ListBucket や GetBucketLocation は バケットの ARN (ワイルドカードなし)
+GetObject / PutObject / DeleteObject は オブジェクトパス (ワイルドカードつき)
+を指定する必要がある点に注意してください。
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+
+    // ---------- ソースバケット権限 ----------
+    {
+      "Sid": "AllowListSourceBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "arn:aws:s3:::SOURCE_BUCKET_NAME"
+    },
+    {
+      "Sid": "AllowGetSourceObjects",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::SOURCE_BUCKET_NAME/*"
+    },
+
+    // ---------- デスティネーションバケット権限 ----------
+    {
+      "Sid": "AllowListDestBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "arn:aws:s3:::DESTINATION_BUCKET_NAME"
+    },
+    {
+      "Sid": "AllowPutDestObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "arn:aws:s3:::DESTINATION_BUCKET_NAME/*"
+    }
+
+    // ※ デスティネーションの不要ファイルを削除する場合（sync --delete）:
+    // {
+    //   "Sid": "AllowDeleteDestObjects",
+    //   "Effect": "Allow",
+    //   "Action": "s3:DeleteObject",
+    //   "Resource": "arn:aws:s3:::DESTINATION_BUCKET_NAME/*"
+    // }
+  ]
+}
+
+上記ポリシーを EC2 インスタンスに割り当てる IAM ロール（または使用する IAM ユーザー / IAM ロール）に付与することで、
+aws s3 sync s3://SOURCE_BUCKET_NAME s3://DESTINATION_BUCKET_NAME を正常に実行できます。
 
 ポイント
-1. Lambda 関数設定:
-    * runtime: Runtime.PYTHON_3_11 で PYTHON_3_11 のランタイムを指定しています。
-    * handler には deleteSnapshots.handler（deleteSnapshots.ts 内の handler 関数）を指定します。
-    * コードは Code.fromAsset(path.join(__dirname, "lambda")) で、my-stack.ts と同階層の lambda ディレクトリを指定しています。
-2. 必要な IAM ポリシーの付与:
-    * RDS のスナップショットを参照 (DescribeDBSnapshots) し、かつ削除 (DeleteDBSnapshot) する必要があるため、Lambda の実行ロールにそれらのアクションを許可するポリシーを追加しています。
-3. EventBridge ルール設定:
-    * Cron 式を使用し、毎日 0 時 0 分に実行するよう設定しています。rule.addTarget で Lambda 関数をターゲットに指定します。
-    * スケジュールの粒度や曜日指定などは Schedule.cron({ ... }) で自由に変更可能です。
-
-以下の CDK (Cloud Development Kit) スタック定義では、Lambda 関数とEventBridge ルールを作成し、「7日以上経過した手動スナップショットを自動削除する」Lambda を毎日特定の時間に実行する仕組みを構築しています。項目ごとに何をやっているかを説明します。
-
-1. インポート文
-
-import * as cdk from "aws-cdk-lib";
-import { Construct } from "constructs";
-import { Runtime, Code, Function } from "aws-cdk-lib/aws-lambda";
-import { Rule, Schedule } from "aws-cdk-lib/aws-events";
-import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
-import { PolicyStatement, Effect } from "aws-cdk-lib/aws-iam";
-import * as path from "path";
-
-aws-cdk-lib: CDK のコアライブラリ。スタックやリソースを定義するためのモジュールが含まれています。
-constructs: CDK が採用しているプログラミングモデルの基礎となる “Construct” を使うためのライブラリです。
-aws-lambda: Lambda 関数を作成・設定するためのクラス (Function, Runtime, Code など) が含まれています。
-aws-events: EventBridge（旧 CloudWatch Events）のルール (Rule) やスケジュール (Schedule) を定義するためのクラスが含まれています。
-aws-events-targets: イベントのターゲットとして Lambda 関数や他のサービスを指定するためのクラス（LambdaFunction など）。
-aws-iam: IAM ロールやポリシー (PolicyStatement, Effect) を定義するクラスが含まれています。
-path: Node.js 標準ライブラリ。ファイル/ディレクトリパスの操作に便利。
-
-2. クラス宣言
-
-export class MyStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
-    
-    ...
-  }
-}
-
-MyStack: CDK スタックを表すクラス。
-* ここで定義したリソース（Lambda 関数や EventBridge ルールなど）が、デプロイ時に CloudFormation テンプレートとして作られ、AWS 上にリソースが構築されます。
-constructor: スタックの初期化処理。ここで Lambda や EventBridge の設定が行われます。
-
-3. Lambda 関数の作成
-
-const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
-  runtime: Runtime.PYTHON_3_11, // PYTHON_3_11
-  code: Code.fromAsset(path.join(__dirname, "lambda")), // ディレクトリを指定
-  handler: "deleteSnapshots.handler",
-  // 環境変数など必要に応じて設定
-  // environment: {
-  //   ...
-  // }
-});
-
-new Function(...): Lambda 関数を生成するためのコンストラクト。
-this: CDK スタックのコンストラクトスコープ。
-DeleteOldSnapshotsLambda: リソース名（物理名ではなく論理IDとなる）。
-Lambda のプロパティ:
-* runtime: Runtime.PYTHON_3_11
-    * 使いたいランタイムを指定。PYTHON_3_11 のランタイムで実行される Lambda となります。
-* code: Code.fromAsset(...)
-    * Lambda のコードをどこから取得するかを設定します。fromAsset はローカルファイルを zip 化してデプロイする仕組み。
-    * path.join(__dirname, "lambda") を指定することで、スタックファイル (my-stack.ts) と同階層にある lambda ディレクトリがコードとして扱われます。
-* handler: "deleteSnapshots.handler"
-    * Lambda 関数を呼び出す際のハンドラを指定。例えば deleteSnapshots.ts 内にある export const handler を使うイメージです。
-* (コメントアウトされている environment は、必要に応じて Lambda 環境変数を設定するときに使われます。)
-
-4. IAM ポリシーの付与
-
-deleteSnapshotsLambda.addToRolePolicy(
-  new PolicyStatement({
-    effect: Effect.ALLOW,
-    actions: [
-      "rds:DescribeDBSnapshots",
-      "rds:DeleteDBSnapshot"
-    ],
-    resources: ["*"]
-  })
-);
-
-* 生成した Lambda 関数には、実行時に自動で IAM ロールが割り当てられます。
-* ここで addToRolePolicy(...) を使うことで、そのロールに追加のパーミッションを付与できます。
-* PolicyStatement では、以下の内容を指定しています。
-    1. effect: Effect.ALLOW
-        * ポリシーの効果を「Allow（許可）」にする。
-    2. actions
-        * Lambda から実行できるアクション（API）の一覧。
-        * ここでは RDS の「スナップショットの参照 (DescribeDBSnapshots)」「スナップショットの削除 (DeleteDBSnapshot)」が含まれています。
-    3. resources: ["*"]
-        * リソース ARN の指定。今回は *（すべて）ですが、必要に応じて対象のスナップショット ARN を指定することも可能です。
-
-これにより、Lambda 関数が RDS のスナップショットを取得・削除できるようになります。
-
-5. EventBridge (スケジュールルール)
-
-const rule = new Rule(this, "DeleteOldSnapshotsScheduleRule", {
-  schedule: Schedule.cron({
-    minute: "0",
-    hour: "0"
-  })
-});
-
-* new Rule(...): EventBridge のルールを定義するためのコンストラクトです。
-* DeleteOldSnapshotsScheduleRule: このルールの論理ID。
-* schedule: Schedule.cron(...):
-    * スケジュール式（Cron 表記）で、いつイベントを発火するかを指定。
-    * minute: "0", hour: "0" は、毎日 0 時 0 分 (深夜0時) にイベントが発火する、という意味になります。
-    * 例として、minute: "0", hour: "0", day: "*", etc. などで柔軟に指定できます。
-
-6. ルールのターゲット設定
-
-rule.addTarget(new LambdaFunction(deleteSnapshotsLambda));
-
-作成したルールが発火した際に、どのリソースを呼び出すかを指定します。
-new LambdaFunction(...) に上記で作成した deleteSnapshotsLambda を渡しています。
-* つまり、毎日 0 時 0 分に deleteSnapshotsLambda が自動実行されるようになります。
-
-まとめ
-1. Lambda 関数 (deleteSnapshotsLambda) を Node.js 22 ランタイムで作成。
-    * ディレクトリ lambda にあるコードをデプロイ対象とし、ハンドラは deleteSnapshots.handler を指定。
-2. IAM ポリシー を Lambda の実行ロールに付与。
-    * RDS のスナップショットの一覧取得・削除ができる権限を付与。
-3. EventBridge のルール (DeleteOldSnapshotsScheduleRule) を作成。
-    * スケジュールを Cron 式で設定し、毎日 0 時 0 分に発火させる。
-4. ルールのターゲット として、deleteSnapshotsLambda を指定。
-    * 指定時刻に自動で Lambda 関数が実行される。
-
-このスタックを cdk deploy すると、Lambda 関数・EventBridge のスケジュール・IAM 設定を含む一連のリソースが AWS 上に構築されます。 実行時、Lambda のコード側で RDS スナップショットを古い順に削除するロジックが動き、自動削除が実現されます。
-
-以下は、メール通知について
-
-SNS トピックを定義:
-* new sns.Topic(...) で SNS トピックを作成。
-* displayName はトピックの表示名(コンソール等用)で自由に設定可能。
-Eメール購読:
-* snapshotDeleteFailureTopic.addSubscription(new subs.EmailSubscription("..."));
-* メールアドレスを指定すると、そのアドレスに サブスクリプション確認メール が届きます。
-* メール内のリンクをクリックして購読承認すると、有効なサブスクリプションとなり、以後 SNS からの Publish でメールが届きます。
-Lambda の環境変数:
-* SNAPSHOT_DELETE_FAILURE_TOPIC_ARN に SNSトピックの ARN を渡します。
-* Lambda コードでこれを参照し、失敗時に Publish する。
-Lambda が SNS を Publish できるよう snapshotDeleteFailureTopic.grantPublish(deleteSnapshotsLambda); で権限を付与。
+「ListBucket」はバケットARN(ワイルドカードなし)に付与
+「GetObject / PutObject / DeleteObject」は「arn:aws:s3:::バケット名/*」に付与
+マルチパート失敗時の中断に備えて s3:AbortMultipartUpload も付与
+追加要件 (sync --delete で削除をしたい等) に応じて DeleteObject を付与
+このようにすることで、「必要最小限」かつ「CLIによる同期に必要十分な」権限を与えることができます。
 
 
-3. CDK アプリケーションエントリーポイント（bin/cdk-app.ts）
-
-#!/usr/bin/env node
-import * as cdk from "aws-cdk-lib";
-import { MyStack } from "../lib/my-stack";
-
-const app = new cdk.App();
-new MyStack(app, "MySnapshotCleanerStack", {
-  // スタック名やリージョンなど必要であれば指定
-  // env: { region: "ap-northeast-1" },
-});
-
-ここでは単純に MyStack を new しています。
-必要に応じて env にリージョンやアカウントを指定してください。
-
-4. デプロイ & 動作確認
-
-1. CDK デプロイ
-
-cdk deploy
-
-1. 正常にデプロイされると、Lambda 関数と EventBridge ルールが作成されます。
-2. 動作確認
-    * デフォルトでは、毎日 0 時に自動実行されます。
-    * すぐにテストしたい場合は、コンソールや CLI から手動で Lambda 関数を実行してください。
-    * ログは CloudWatch Logs の Lambda ロググループで確認可能です。
-
-まとめ
-* Lambda + EventBridge + CDK(TypeScript) で「7日以上前の手動スナップショットを自動削除」する仕組みを構築しました。
-* ランタイムは Runtime.NODEJS_22_X で指定可能です。
-* Lambda 内部では、AWS SDK for JavaScript (v3) を使って RDS のスナップショットを取得・削除しています。
-
-このサンプルコードをベースに、実運用に必要な要件（ログ出力フォーマット、通知機能、削除前の検証など）を適宜追加してご利用ください。
 
 
-5. メール通知の仕組み
-AWS SNS は、Pub/Sub (Publisher/Subscriber) メッセージングサービス です。
-* Pub (Publish) = データを送る側
-* Sub (Subscribe) = データを受け取る側
-
-今回のケースでは:
-1. Lambda が「スナップショット削除エラー発生時」に PublishCommand を呼び出す。
-    * 送信先は SNS トピックの ARN。
-2. SNS トピック が受け取ったメッセージを、購読しているメールアドレス宛に転送（通知）する。
-    * メール購読の場合、EmailSubscription に指定したアドレスへ通知が飛ぶ。
-
-メリット:
-* SNS 側で購読先を増減するだけで、コードを修正することなく通知先を変更可能。
-* Publish は 1 回で済み、SNS が複数の購読先に通知することも簡単。
 
 
-メール通知の試験方法
-
-スナップショット削除処理が正常に完了した場合は通知されないため、わざと失敗させるテストを行うのがポイントです。 以下のような方法があります。
-
-1. Lambda のコードを一時的に失敗させる
-    * 例: 「存在しないスナップショット ID」を無理やり削除しようとするコードを入れて強制的に DeleteDBSnapshot が失敗するようにする。
-
-await rdsClient.send(
-  new DeleteDBSnapshotCommand({
-    DBSnapshotIdentifier: "NON_EXISTING_SNAPSHOT_ID"
-  })
-);
-
-    * これを実行すると RDS API が失敗し catch に入り、SNS によるメール送信が試せます。
-
-1. AWS CLI or AWSコンソール上から Lambda を手動実行してみる
-    * 例えば、コンソールの Lambda 画面から「テスト」実行を押してコードを動かす。
-    * 上記のようなエラーを仕込んだ状態ならメールが届くか確認可能。
-2. EventBridge のスケジュールを待つ
-    * 上記のエラーを仕込んでおいたまま、夜0時（などのスケジュール）を待つ方法もありますが、通常は手動テストが早いです。
-
-テストに際しての注意
-* SNS トピックのサブスクリプションはメールアドレス側で「購読承認」を完了しておく必要があります。
-    * CDK デプロイ後に example@example.com(指定したアドレス) に「AWS Notification - Subscription Confirmation」メールが飛んでくるので、文中の Confirm subscription リンクをクリックしてください。
-    * これをしないと SNS が Publish してもメールは届きません。
 
 
-メール通知のまとめ
-* 失敗時だけメールを送るには、Lambda コードの catch ブロック内で SNS に Publish するのがシンプル。
-* CDK 側では SNS トピック + メール購読を作り、Lambda へそのトピック ARN を渡す。
-* テスト方法は「強制的にスナップショット削除を失敗させる」「Lambda をコンソールから実行する」など。
-* SNS による EmailSubscription は、購読者が承認しないと通知が有効にならない点に注意。
 
-この構成であれば、毎日実行時にスナップショット削除が正常完了すれば通知はなく、失敗したときだけメールアラートが飛ぶようになります。
+
+
+
+
+
+
+
+
+
+
+
