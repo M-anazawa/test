@@ -198,17 +198,45 @@ aws s3 sync s3://SOURCE_BUCKET_NAME s3://DESTINATION_BUCKET_NAME を正常に実
 
 
 
+以下の理由で、「IAMロール＋VPCエンドポイント」の AND 条件での強制は出来ないと回答されていますが、Principalに設定しているIAMロール(AWS": "arn:aws:iam::123456789012:role/YourCrossAccountRole)には当てはまりますか？
+
+[以前の回答]
+Server-Side Copy の PUT や GET は「S3 が S3 に対して行う内部処理」であり、お客様の VPC からのリクエストではありません。そのため aws:sourceVpce は当てはまらず、VPC エンドポイントを強制することはできません。
 
 
 
 
+まず前提として、「Server-Side Copy（CopyObject / UploadPartCopy）によるS3→S3のコピー」は以下の2つの段階に分かれています。
 
+（お客様のEC2等から）S3 API（CopyObjectなど）を呼び出す段階
 
+Principal（IAMロール等）が「コピーしてください」というリクエストをS3サービスに対して送信する。
+このリクエストは制御プレーンの通信となり、VPCエンドポイントを経由したり、AWSアカウント間のロールを使ったりすることでコントロール可能です。
+aws:sourceVpce などの Condition は、この「呼び出し元からS3へのAPIリクエスト」に対して適用されます。
+S3サービス内でのオブジェクト実体のコピー段階（Server-Side Copy）
 
+「S3がS3自身に対してデータをコピーする」内部処理。
+ここでのPUT/GETは「S3が実行するデータ転送」であり、お客様のVPCやロールを使ったアクセスではない。
+したがって aws:sourceVpce や「お客様のIAMロール」は関与しません。
 
+結論
+「Server-Side Copyでは aws:sourceVpce が当てはまらない」という理由は、Principal が IAMロールであっても変わらない
+お客様がどのIAMロールを使ってAPI呼び出し（CopyObjectリクエスト）を行おうと、実際のオブジェクトデータコピー処理はS3内部で行われるため、
+その内部処理は“お客様のVPCエンドポイント”を使うアクセスとしては評価されない
+バケットポリシーで aws:sourceVpce を 必須 とすると、S3が実行する内部コピー処理が「その条件を満たさず拒否される」可能性が高い
+一方、API呼び出しそのもの（どのPrincipalが何のVPCエンドポイントを通ってS3にリクエストしているか）は、aws:sourceVpce で絞り込むことができます。
+しかし Server-Side Copy の“実際のオブジェクト転送”部分には適用されない ので、結果的に 「S3内部からS3内部へのコピーリクエスト」として拒否されてしまう ことになります。
 
+具体的に言うと
+バケットポリシーで「Principal はこのIAMロール」かつ「aws:sourceVpce は特定のエンドポイントIDのみ許可」という条件を設定すると、「お客様の発行するCopyObject API呼び出し」 はそのロール＋VPCエンドポイントであれば通ります。
+しかしS3が最終的に行う「S3 → S3 の実オブジェクトCOPY」は、S3サービスの内部通信となるため、aws:sourceVpce も「IAMロール(AWS…role/xxxx)」も当てはまらず、結果的にポリシー的には拒否される可能性が高い。
+結果
+Server-Side Copy が成功しない (ポリシーによって拒否される)
+あるいは ローカル経由のコピー(EC2でダウンロード→アップロード)であれば成功
+こちらは“実データのGET/PUT”自体が「お客様のEC2からのリクエスト」になるため、aws:sourceVpce を満たす形で動作させられる。
 
-
-
-
+まとめ
+「Server-Side CopyのPUT/GETリクエストはS3内部が実行主体になるため、aws:sourceVpceやお客様IAMロールのPrincipal条件にマッチしない」 という点は、PrincipalがIAMユーザーでもIAMロールでも変わりません。
+バケットポリシーにて「IAMロール＋aws:sourceVpce」のAND条件を要求すると、Server-Side Copy（内部コピー）にはその条件が当てはまらず拒否されます。
+従って「VPCエンドポイントを強制しつつ、ロールも限定したい」場合は**EC2経由でのコピー(クライアントサイドコピー)**にするか、Server-Side Copyを許可する側のバケットポリシーを別途工夫する必要があります。
 
