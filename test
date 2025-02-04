@@ -1,45 +1,90 @@
-Marker が None の場合は、パラメータとして渡さないようにする必要があります。たとえば、以下のようにパラメータ辞書を動的に構築する方法があります。
+import os
+import boto3
+import datetime
+import logging
 
-while True:
-    params = {
-        'SnapshotType': 'manual'
-    }
-    # markerが存在する場合のみ、パラメータに追加する
-    if marker:
-        params['Marker'] = marker
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
-    response = rds_client.describe_db_snapshots(**params)
+def lambda_handler(event, context):
+    rds_client = boto3.client('rds')
+    sns_client = boto3.client('sns')
 
-    snapshots = response.get('DBSnapshots', [])
-    marker = response.get('Marker')
+    # SNS トピックの ARN を環境変数から取得
+    sns_topic_arn = os.environ.get("SNAPSHOT_DELETE_FAILURE_TOPIC_ARN")
 
-    for snapshot in snapshots:
-        snapshot_id = snapshot.get('DBSnapshotIdentifier')
-        snapshot_time = snapshot.get('SnapshotCreateTime')
+    # 現在日時と 7 日前の日時を計算
+    now = datetime.datetime.utcnow()
+    cutoff_date = now - datetime.timedelta(days=7)
+    logger.info(f"Deleting manual snapshots older than: {cutoff_date.isoformat()}")
 
-        # 必須フィールドがなければスキップ
-        if not snapshot_id or not snapshot_time:
-            continue
+    marker = None
 
-        # 7日以上前かどうか判定 (snapshot_time は datetime.datetime 型)
-        if snapshot_time < cutoff_date:
-            logger.info(f"Deleting snapshot: {snapshot_id} (Created at: {snapshot_time.isoformat()})")
-            rds_client.delete_db_snapshot(
-                DBSnapshotIdentifier=snapshot_id
-            )
+    try:
+        while True:
+            # パラメータ辞書を作成。marker が存在する場合のみ追加する。
+            params = {
+                'SnapshotType': 'manual'
+            }
+            if marker:
+                params['Marker'] = marker
 
-    # Marker が存在しなければ、最終ページなのでループ終了
-    if not marker:
-        break
+            response = rds_client.describe_db_snapshots(**params)
+            snapshots = response.get('DBSnapshots', [])
+            marker = response.get('Marker')
+
+            for snapshot in snapshots:
+                snapshot_id = snapshot.get('DBSnapshotIdentifier')
+                snapshot_time = snapshot.get('SnapshotCreateTime')
+
+                # 必須フィールドがなければスキップ
+                if not snapshot_id or not snapshot_time:
+                    continue
+
+                # SnapshotCreateTime は datetime.datetime 型
+                # 7日以上前かどうか判定
+                if snapshot_time < cutoff_date:
+                    logger.info(f"Deleting snapshot: {snapshot_id} (Created at: {snapshot_time.isoformat()})")
+                    rds_client.delete_db_snapshot(
+                        DBSnapshotIdentifier=snapshot_id
+                    )
+
+            # Marker が存在しなければ、最終ページなのでループ終了
+            if not marker:
+                break
+
+        logger.info("Completed deleting old manual snapshots.")
+
+    except Exception as e:
+        logger.error(f"Error deleting snapshots: {e}", exc_info=True)
+
+        # 失敗時のみ SNS 通知する
+        if sns_topic_arn:
+            try:
+                sns_client.publish(
+                    TopicArn=sns_topic_arn,
+                    Subject="RDS Snapshot Deletion Failed",
+                    Message=f"An error occurred while deleting RDS snapshots.\n\nError: {e}"
+                )
+                logger.info("Failure notification sent to SNS.")
+            except Exception as pub_err:
+                logger.error(f"Failed to publish SNS notification: {pub_err}", exc_info=True)
+
+        # Lambda 自体を失敗とするため、再度エラーを投げる
+        raise e
 
 
 説明
-パラメータ辞書の構築
+パラメータ辞書の動的構築
 
-まず、params = {'SnapshotType': 'manual'} として初期パラメータを用意します。
-もし marker が存在（None ではない）する場合のみ、params に 'Marker': marker を追加します。
+最初に params = {'SnapshotType': 'manual'} として初期パラメータを作成します。
+その後、if marker: で marker の値が存在する場合にのみ params['Marker'] = marker を追加します。
+これにより、初回呼び出し時は Marker パラメータを渡さず、以降は marker が文字列の場合のみ渡すようになります。
 API 呼び出し
 
-rds_client.describe_db_snapshots(**params) として、辞書の内容を展開して渡すため、Marker パラメータは marker が存在する場合のみ含まれます。
-これにより、初回の呼び出しでは Marker が渡されず、以降、次ページが存在する場合のみ Marker が正しい型（文字列）として渡されるようになります。
-この修正により、Marker に None を渡してしまう問題が解消され、エラーが発生しなくなります。
+rds_client.describe_db_snapshots(**params) でパラメータ辞書の内容を展開して渡します。
+これにより、Marker が None の場合に発生していたエラーを回避できます。
+それ以外の処理は元のコードと同様
+
+7 日前のスナップショットを削除し、エラーが発生した場合は SNS に通知してから例外を再スローします。
+この修正により、None 型の Marker を渡すことによるパラメータ検証エラーが解消され、正常に動作するはずです。
