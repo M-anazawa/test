@@ -1,242 +1,45 @@
-AWSアカウントAにあるS3のデータをAWSアカウントBにあるS3に移行します。
-移行方法はAWSアカウントAにあるEC2から下記のAWS CLIを実行し、AWSアカウントAにあるインターフェース型S3エンドポイントを経由させます。
-この際、AWSアカウントBのS3バケットポリシー設定をAWSアカウントAのEC2に適用しているIAMロールとAWSアカウントAにあるインターフェース型S3エンドポイントのアンドで許可することは可能ですか？
+Marker が None の場合は、パラメータとして渡さないようにする必要があります。たとえば、以下のようにパラメータ辞書を動的に構築する方法があります。
 
-aws s3 sync [AWSアカウントAのS3パス] [AWSアカウントBのS3パス] --endpoint-url [エンドポイントDNS]
-
-
-結論として、「aws s3 sync s3://(AccountAバケット) s3://(AccountBバケット) を実行したときに発生する“Server-Side Copy (CopyObject)”リクエストを、Account A 側のインターフェース型S3エンドポイント経由に限定し、それを Account B 側のバケットポリシーで aws:sourceVpce と IAM ロールの両条件(AND)で許可する」ことは原則できません。
-
-理由を順を追って解説します。
-1. Server-Side Copy と VPCエンドポイントの関係
-aws s3 sync s3://source-bucket s3://dest-bucket のように ソースもデスティネーションも s3:// 指定の場合、AWS CLI は基本的に S3 の CopyObject または UploadPartCopy を使用した Server-Side Copy を行います。
-
-Server-Side Copy は、S3サービス内部でオブジェクトがコピーされる仕組みです。
-オブジェクトの実データは S3 内部 で完結し、VPC やインターネットを“通らない” ため、インターフェース型エンドポイント (VPC PrivateLink) が関与する経路にはなりません。
-CLI は何をしているのか
-AWS CLI は「どのオブジェクトをコピーするか」「どこへコピーするか」の制御プレーンとして、S3 API (CopyObject など) を呼び出します。
-しかし 実際のデータ転送 は S3 内部で完結します。そのため「aws:sourceVpce 条件を満たすネットワーク経路でオブジェクトをコピーする」といった制御はできません。
-なぜ aws:sourceVpce が機能しないのか
-S3バケットポリシーで aws:sourceVpce を使った条件は「VPCエンドポイント経由で届く データプレーンリクエスト（GET/PUTなど）に限定する」ためのものです。
-しかし Server-Side Copy の PUT や GET は「S3 が S3 に対して行う内部処理」であり、お客様の VPC からのリクエストではありません。そのため aws:sourceVpce は当てはまらず、VPC エンドポイントを強制することはできません。
-
-
-2. 「IAMロール＋VPCエンドポイント」の AND 条件付け自体は可能か
-バケットポリシーの書き方として は、以下のように「特定の IAM ロール (クロスアカウントロール)」かつ「aws:sourceVpce が指定のエンドポイントID」の両方を満たす場合に許可する、という構成自体は書くことが可能です。
-
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "AllowPutObjectFromSpecificRoleAndVPCE",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::123456789012:role/YourCrossAccountRole"
-      },
-      "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::YourBucketB/*",
-      "Condition": {
-        "StringEquals": {
-          "aws:sourceVpce": "vpce-abcdefgh123456789"
-        }
-      }
+while True:
+    params = {
+        'SnapshotType': 'manual'
     }
-  ]
-}
+    # markerが存在する場合のみ、パラメータに追加する
+    if marker:
+        params['Marker'] = marker
 
-しかし、Server-Side Copy によるオブジェクト PUT/GET では aws:sourceVpce 条件がマッチしません（S3内部コピーのため）。結果的に 「BucketB へのコピーが拒否される」または「サーバーサイドコピー自体がエラーになる」 という挙動になります。
+    response = rds_client.describe_db_snapshots(**params)
 
+    snapshots = response.get('DBSnapshots', [])
+    marker = response.get('Marker')
 
-3. インターフェース型エンドポイントを経由して転送したい場合
-もし「どうしても Account A 側のインターフェース型 S3 エンドポイント経由でデータを転送させたい」という要件がある場合は、**サーバーサイドコピーを使わず、EC2（CLI）に一度データをダウンロードしてからアップロードする“クライアントサイドコピー”**に切り替える必要があります。
+    for snapshot in snapshots:
+        snapshot_id = snapshot.get('DBSnapshotIdentifier')
+        snapshot_time = snapshot.get('SnapshotCreateTime')
 
-3.1 クライアントサイドコピーの流れ
-Account A の EC2 上で
+        # 必須フィールドがなければスキップ
+        if not snapshot_id or not snapshot_time:
+            continue
 
-# （1）ソースバケット(S3) → EC2 へダウンロード
-aws s3 sync s3://(AccountAバケット) /local/path \
-    --endpoint-url https://vpce-xxx-yyy.s3.region.amazonaws.com
+        # 7日以上前かどうか判定 (snapshot_time は datetime.datetime 型)
+        if snapshot_time < cutoff_date:
+            logger.info(f"Deleting snapshot: {snapshot_id} (Created at: {snapshot_time.isoformat()})")
+            rds_client.delete_db_snapshot(
+                DBSnapshotIdentifier=snapshot_id
+            )
 
-# （2）EC2 → デスティネーションバケット(S3) へアップロード
-aws s3 sync /local/path s3://(AccountBバケット) \
-    --endpoint-url https://vpce-xxx-yyy.s3.region.amazonaws.com
-
-※ 上記の --endpoint-url でインターフェース型エンドポイントの Private DNS 名を指定
-オブジェクトデータの実転送は「VPC → S3」の経路となり、aws:sourceVpce 条件にマッチする。
-これにより、実際のオブジェクトデータ が VPC エンドポイントを経由して EC2 に入り、そこから再度 VPC エンドポイント経由でアップロードされます。
-
-バケットポリシーで aws:sourceVpce ＋ IAMロールを AND 条件にしていれば、アップロード (PUT) は許可されます。
-
-注意点
-データ容量が大きい場合、EC2 に一時的に保存するストレージが必要になるほか、転送時間・コストもサーバーサイドコピーより増加します。
-「どうしてもネットワーク経路を限定したい」「外部通信をさせたくない」というセキュリティ要件がある場合にのみ、この方式が選択されることが多いです。
-
-4. まとめ
-Server-Side Copy（aws s3 sync s3://～ s3://～ のデフォルト挙動）は、S3内部通信で完結するため VPCエンドポイントを経由しない。
-結果として、aws:sourceVpce 条件を使ったバケットポリシーとは相性が悪い（ほぼ拒否される）。
-「IAMロール × aws:sourceVpce の AND 条件」をバケットポリシーに書くこと自体は構文上可能。
-しかし Server-Side Copy ではその条件を満たせず、コピーが通らない。
-どうしてもインターフェース型エンドポイントを経由したデータ転送を行いたい場合
-クライアントサイドコピー (EC2に一度GET→再度PUT) を行うことで、VPC経由でのオブジェクト転送が可能になる。
-その際、バケットポリシーの aws:sourceVpce が機能するようになる。
-
-以上から、「バケットポリシーで Account A の EC2 が使う IAM ロール と インターフェース型S3エンドポイント を AND 条件にして許可する」こと自体は設定可能ですが、Server-Side Copy の場合は適用されずに失敗してしまう という点にご注意ください。もし本当に VPC 経由での転送制御を求めるのであれば、クライアントサイドコピー方式に変更する必要があります。
+    # Marker が存在しなければ、最終ページなのでループ終了
+    if not marker:
+        break
 
 
+説明
+パラメータ辞書の構築
 
+まず、params = {'SnapshotType': 'manual'} として初期パラメータを用意します。
+もし marker が存在（None ではない）する場合のみ、params に 'Marker': marker を追加します。
+API 呼び出し
 
-
-
-次のように--endpoint-urlにインターフェース型S3エンドポイントDNSを指定した場合、S3への指令はインターフェース型S3エンドポイントを経由して行われ、デートの転送はAWSアカウントAのS3とAWSアカウントBのS3間で直接行われる認識であっていますか？
-
-aws s3 sync [AWSアカウントAのS3パス] [AWSアカウントBのS3パス] --endpoint-url [インターフェース型S3エンドポイントDNS]
-
-
-
-はい、その認識で正しいです。
-
---endpoint-url に インターフェース型S3エンドポイントのDNS名 を指定すると、
-「AWS CLI が S3サービスへ送る APIリクエスト（制御プレーン通信）」はそのエンドポイント経由 で行われます。
-一方で、
-「実際のオブジェクトデータのコピー（データプレーン）」は、S3サービス内部での Server-Side Copy により、
-Account A の S3 と Account B の S3 間で直接やり取り されます。
-つまり、「APIリクエスト自体はインターフェース型エンドポイントを通るが、オブジェクトデータはEC2を経由せずにS3間でコピーされる」という挙動になります。
-
-
-
-
-
-
-aws s3 syncを実行するEC2に適用するIAMロールを必要最低限の内容で教えてください
-
-
-「必要最低限の権限」は状況によって若干異なりますが、一般的に aws s3 sync s3://ソースバケット s3://デスティネーションバケット を実行するだけなら、以下のアクションがあれば十分です。
-
-ソースバケット
-
-s3:ListBucket (バケット内のオブジェクト一覧を取得する)
-s3:GetObject (オブジェクトを読み出す)
-s3:GetBucketLocation (バケットのリージョン情報を取得する) ※CLI 内部で利用される場合がある
-デスティネーションバケット
-
-s3:ListBucket (同期時に差分比較のためバケット内一覧を取得する)
-s3:GetBucketLocation (同上)
-s3:PutObject (オブジェクトを書き込む)
-s3:AbortMultipartUpload (マルチパートアップロード途中で失敗した場合に中断するため)
-もし sync --delete オプションなどでデスティネーション側の不要オブジェクトを削除する場合は、さらに s3:DeleteObject が必要です。
-
-ポリシー例
-以下のように ソースバケット用 と デスティネーションバケット用 でステートメントを分けて記述します。
-
-ListBucket や GetBucketLocation は バケットの ARN (ワイルドカードなし)
-GetObject / PutObject / DeleteObject は オブジェクトパス (ワイルドカードつき)
-を指定する必要がある点に注意してください。
-
-{
-  "Version": "2012-10-17",
-  "Statement": [
-
-    // ---------- ソースバケット権限 ----------
-    {
-      "Sid": "AllowListSourceBucket",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket",
-        "s3:GetBucketLocation"
-      ],
-      "Resource": "arn:aws:s3:::SOURCE_BUCKET_NAME"
-    },
-    {
-      "Sid": "AllowGetSourceObjects",
-      "Effect": "Allow",
-      "Action": "s3:GetObject",
-      "Resource": "arn:aws:s3:::SOURCE_BUCKET_NAME/*"
-    },
-
-    // ---------- デスティネーションバケット権限 ----------
-    {
-      "Sid": "AllowListDestBucket",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket",
-        "s3:GetBucketLocation"
-      ],
-      "Resource": "arn:aws:s3:::DESTINATION_BUCKET_NAME"
-    },
-    {
-      "Sid": "AllowPutDestObjects",
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject",
-        "s3:AbortMultipartUpload"
-      ],
-      "Resource": "arn:aws:s3:::DESTINATION_BUCKET_NAME/*"
-    }
-
-    // ※ デスティネーションの不要ファイルを削除する場合（sync --delete）:
-    // {
-    //   "Sid": "AllowDeleteDestObjects",
-    //   "Effect": "Allow",
-    //   "Action": "s3:DeleteObject",
-    //   "Resource": "arn:aws:s3:::DESTINATION_BUCKET_NAME/*"
-    // }
-  ]
-}
-
-上記ポリシーを EC2 インスタンスに割り当てる IAM ロール（または使用する IAM ユーザー / IAM ロール）に付与することで、
-aws s3 sync s3://SOURCE_BUCKET_NAME s3://DESTINATION_BUCKET_NAME を正常に実行できます。
-
-ポイント
-「ListBucket」はバケットARN(ワイルドカードなし)に付与
-「GetObject / PutObject / DeleteObject」は「arn:aws:s3:::バケット名/*」に付与
-マルチパート失敗時の中断に備えて s3:AbortMultipartUpload も付与
-追加要件 (sync --delete で削除をしたい等) に応じて DeleteObject を付与
-このようにすることで、「必要最小限」かつ「CLIによる同期に必要十分な」権限を与えることができます。
-
-
-
-
-
-
-以下の理由で、「IAMロール＋VPCエンドポイント」の AND 条件での強制は出来ないと回答されていますが、Principalに設定しているIAMロール(AWS": "arn:aws:iam::123456789012:role/YourCrossAccountRole)には当てはまりますか？
-
-[以前の回答]
-Server-Side Copy の PUT や GET は「S3 が S3 に対して行う内部処理」であり、お客様の VPC からのリクエストではありません。そのため aws:sourceVpce は当てはまらず、VPC エンドポイントを強制することはできません。
-
-
-
-
-まず前提として、「Server-Side Copy（CopyObject / UploadPartCopy）によるS3→S3のコピー」は以下の2つの段階に分かれています。
-
-（お客様のEC2等から）S3 API（CopyObjectなど）を呼び出す段階
-
-Principal（IAMロール等）が「コピーしてください」というリクエストをS3サービスに対して送信する。
-このリクエストは制御プレーンの通信となり、VPCエンドポイントを経由したり、AWSアカウント間のロールを使ったりすることでコントロール可能です。
-aws:sourceVpce などの Condition は、この「呼び出し元からS3へのAPIリクエスト」に対して適用されます。
-S3サービス内でのオブジェクト実体のコピー段階（Server-Side Copy）
-
-「S3がS3自身に対してデータをコピーする」内部処理。
-ここでのPUT/GETは「S3が実行するデータ転送」であり、お客様のVPCやロールを使ったアクセスではない。
-したがって aws:sourceVpce や「お客様のIAMロール」は関与しません。
-
-結論
-「Server-Side Copyでは aws:sourceVpce が当てはまらない」という理由は、Principal が IAMロールであっても変わらない
-お客様がどのIAMロールを使ってAPI呼び出し（CopyObjectリクエスト）を行おうと、実際のオブジェクトデータコピー処理はS3内部で行われるため、
-その内部処理は“お客様のVPCエンドポイント”を使うアクセスとしては評価されない
-バケットポリシーで aws:sourceVpce を 必須 とすると、S3が実行する内部コピー処理が「その条件を満たさず拒否される」可能性が高い
-一方、API呼び出しそのもの（どのPrincipalが何のVPCエンドポイントを通ってS3にリクエストしているか）は、aws:sourceVpce で絞り込むことができます。
-しかし Server-Side Copy の“実際のオブジェクト転送”部分には適用されない ので、結果的に 「S3内部からS3内部へのコピーリクエスト」として拒否されてしまう ことになります。
-
-具体的に言うと
-バケットポリシーで「Principal はこのIAMロール」かつ「aws:sourceVpce は特定のエンドポイントIDのみ許可」という条件を設定すると、「お客様の発行するCopyObject API呼び出し」 はそのロール＋VPCエンドポイントであれば通ります。
-しかしS3が最終的に行う「S3 → S3 の実オブジェクトCOPY」は、S3サービスの内部通信となるため、aws:sourceVpce も「IAMロール(AWS…role/xxxx)」も当てはまらず、結果的にポリシー的には拒否される可能性が高い。
-結果
-Server-Side Copy が成功しない (ポリシーによって拒否される)
-あるいは ローカル経由のコピー(EC2でダウンロード→アップロード)であれば成功
-こちらは“実データのGET/PUT”自体が「お客様のEC2からのリクエスト」になるため、aws:sourceVpce を満たす形で動作させられる。
-
-まとめ
-「Server-Side CopyのPUT/GETリクエストはS3内部が実行主体になるため、aws:sourceVpceやお客様IAMロールのPrincipal条件にマッチしない」 という点は、PrincipalがIAMユーザーでもIAMロールでも変わりません。
-バケットポリシーにて「IAMロール＋aws:sourceVpce」のAND条件を要求すると、Server-Side Copy（内部コピー）にはその条件が当てはまらず拒否されます。
-従って「VPCエンドポイントを強制しつつ、ロールも限定したい」場合は**EC2経由でのコピー(クライアントサイドコピー)**にするか、Server-Side Copyを許可する側のバケットポリシーを別途工夫する必要があります。
-
+rds_client.describe_db_snapshots(**params) として、辞書の内容を展開して渡すため、Marker パラメータは marker が存在する場合のみ含まれます。
+これにより、初回の呼び出しでは Marker が渡されず、以降、次ページが存在する場合のみ Marker が正しい型（文字列）として渡されるようになります。
+この修正により、Marker に None を渡してしまう問題が解消され、エラーが発生しなくなります。
