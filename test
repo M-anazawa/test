@@ -13,8 +13,8 @@ def lambda_handler(event, context):
     # SNS トピックの ARN を環境変数から取得
     sns_topic_arn = os.environ.get("SNAPSHOT_DELETE_FAILURE_TOPIC_ARN")
 
-    # 現在日時と 7 日前の日時を計算
-    now = datetime.datetime.utcnow()
+    # 現在日時 (タイムゾーン付き UTC) と 7 日前の日時を計算
+    now = datetime.datetime.now(datetime.timezone.utc)
     cutoff_date = now - datetime.timedelta(days=7)
     logger.info(f"Deleting manual snapshots older than: {cutoff_date.isoformat()}")
 
@@ -23,9 +23,7 @@ def lambda_handler(event, context):
     try:
         while True:
             # パラメータ辞書を作成。marker が存在する場合のみ追加する。
-            params = {
-                'SnapshotType': 'manual'
-            }
+            params = {'SnapshotType': 'manual'}
             if marker:
                 params['Marker'] = marker
 
@@ -41,13 +39,10 @@ def lambda_handler(event, context):
                 if not snapshot_id or not snapshot_time:
                     continue
 
-                # SnapshotCreateTime は datetime.datetime 型
-                # 7日以上前かどうか判定
+                # snapshot_time はタイムゾーン付きと仮定して比較
                 if snapshot_time < cutoff_date:
                     logger.info(f"Deleting snapshot: {snapshot_id} (Created at: {snapshot_time.isoformat()})")
-                    rds_client.delete_db_snapshot(
-                        DBSnapshotIdentifier=snapshot_id
-                    )
+                    rds_client.delete_db_snapshot(DBSnapshotIdentifier=snapshot_id)
 
             # Marker が存在しなければ、最終ページなのでループ終了
             if not marker:
@@ -72,19 +67,3 @@ def lambda_handler(event, context):
 
         # Lambda 自体を失敗とするため、再度エラーを投げる
         raise e
-
-
-説明
-パラメータ辞書の動的構築
-
-最初に params = {'SnapshotType': 'manual'} として初期パラメータを作成します。
-その後、if marker: で marker の値が存在する場合にのみ params['Marker'] = marker を追加します。
-これにより、初回呼び出し時は Marker パラメータを渡さず、以降は marker が文字列の場合のみ渡すようになります。
-API 呼び出し
-
-rds_client.describe_db_snapshots(**params) でパラメータ辞書の内容を展開して渡します。
-これにより、Marker が None の場合に発生していたエラーを回避できます。
-それ以外の処理は元のコードと同様
-
-7 日前のスナップショットを削除し、エラーが発生した場合は SNS に通知してから例外を再スローします。
-この修正により、None 型の Marker を渡すことによるパラメータ検証エラーが解消され、正常に動作するはずです。
