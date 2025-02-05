@@ -1,3 +1,3 @@
-deleteSnapshotsLambda.addEventInvokeConfig({
-  retryAttempts: 0, // 再試行なし
+deleteSnapshotsLambda.currentVersion.addEventInvokeConfig({
+  retryAttempts: 2, // 再試行2回
 });
