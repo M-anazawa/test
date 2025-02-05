@@ -1,27 +1,3 @@
-import * as cdk from 'aws-cdk-lib';
-import { Construct } from 'constructs';
-import { Runtime, Code, Function, EventInvokeConfig } from 'aws-cdk-lib/aws-lambda';
-import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import { Rule, Schedule } from 'aws-cdk-lib/aws-events';
-import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
-import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
-import * as path from 'path';
-import * as sns from 'aws-cdk-lib/aws-sns';
-import * as subs from 'aws-cdk-lib/aws-sns-subscriptions';
-
-export class MyStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
-    super(scope, id, props);
-
-    // SNSトピックの作成 (失敗時の通知用)
-    const snapshotDeleteFailureTopic = new sns.Topic(this, "SnapshotDeleteFailureTopic", {
-      displayName: "Snapshot Deletion Failure Topic"
-    });
-    snapshotDeleteFailureTopic.addSubscription(
-      new subs.EmailSubscription("example@example.com")
-    );
-
-    // Lambda関数 (Python 3.11) を作成
     const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
       runtime: Runtime.PYTHON_3_11,
       code: Code.fromAsset(path.join(__dirname, "lambda")),
@@ -30,38 +6,6 @@ export class MyStack extends cdk.Stack {
         SNAPSHOT_DELETE_FAILURE_TOPIC_ARN: snapshotDeleteFailureTopic.topicArn
       },
       description: "Deletes manual RDS snapshots older than 7 days, triggered daily.",
-      logRetention: RetentionDays.ONE_WEEK
+      logRetention: RetentionDays.ONE_WEEK,
+      timeout: cdk.Duration.minutes(5) // タイムアウトを5分に設定
     });
-
-    deleteSnapshotsLambda.addToRolePolicy(
-      new PolicyStatement({
-        effect: Effect.ALLOW,
-        actions: [
-          "rds:DescribeDBSnapshots",
-          "rds:DeleteDBSnapshot"
-        ],
-        resources: ["*"]
-      })
-    );
-
-    snapshotDeleteFailureTopic.grantPublish(deleteSnapshotsLambda);
-
-    // 非同期呼び出し設定を EventInvokeConfig で作成（再試行2回を指定）
-    new EventInvokeConfig(this, 'DeleteSnapshotsLambdaInvokeConfig', {
-      function: deleteSnapshotsLambda,
-      retryAttempts: 2, // 再試行2回（デフォルトは2回、必要に応じて変更）
-      // その他の設定例：
-      // maxEventAge: cdk.Duration.hours(2)
-    });
-
-    // イベントブリッジのルール (毎日 UTC 0:00 実行 → JST 09:00)
-    const rule = new Rule(this, "DeleteOldSnapshotsScheduleRule", {
-      schedule: Schedule.cron({
-        minute: "0",
-        hour: "0"
-      }),
-      description: "Triggers the snapshot deletion Lambda function daily at UTC 0:00."
-    });
-    rule.addTarget(new LambdaFunction(deleteSnapshotsLambda));
-  }
-}
