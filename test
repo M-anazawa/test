@@ -6,6 +6,7 @@
         SNAPSHOT_DELETE_FAILURE_TOPIC_ARN: snapshotDeleteFailureTopic.topicArn
       },
       description: "Deletes manual RDS snapshots older than 7 days, triggered daily.",
-      logRetention: RetentionDays.ONE_WEEK,
-      timeout: cdk.Duration.minutes(5) // タイムアウトを5分に設定
+      // ロググループの保存期間を 2 年に設定
+      logRetention: RetentionDays.TWO_YEARS,
+      timeout: cdk.Duration.minutes(5)
     });
