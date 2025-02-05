@@ -1,4 +1,6 @@
-    const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
+import { RetentionDays } from "aws-cdk-lib/aws-logs";
+
+const deleteSnapshotsLambda = new Function(this, "DeleteOldSnapshotsLambda", {
       runtime: Runtime.PYTHON_3_11,
       code: Code.fromAsset(path.join(__dirname, "lambda")),
       handler: "delete_snapshots.lambda_handler",
