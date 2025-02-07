@@ -1,0 +1,112 @@
+以下は、署名再計算用のJavaScriptコード（aws_canonical.js）の例として、構文上の誤り（未定義変数datestamp、createHmac呼び出しのクォーテーション・構文エラーなど）を修正したものです。
+※なお、このコードはサンプルとなりますので、実際のAWS SigV4の仕様に合わせた十分な検証が必要です。
+
+import qs from 'querystring';
+var crypto = require('crypto');
+
+function recalculateAuthorization(r) {
+  // リクエスト情報の取得
+  const r_method = r.method;
+  const canonicalUri = r.uri;
+  // r.args がオブジェクトの場合は qs.stringify() で文字列化
+  const canonicalQueryString = typeof r.args === 'string' ? r.args : qs.stringify(r.args || {});
+  const r_xamz_content_hash = r.headersIn['X-Amz-Content-SHA256'];
+  const r_xamz_date = r.headersIn['X-Amz-Date'];
+  // AWS SigV4では、日付は通常 r_xamz_date の最初の8文字（YYYYMMDD）となる
+  const timestamp = r_xamz_date.substring(0, 8);
+  const s3_host = "bucket.vpce-<書き換えてください>.s3.ap-northeast-1.vpce.amazonaws.com";
+  const accesskey = "<書き換えてください>";
+  const secretkey = "<書き換えてください>";
+  const region = "ap-northeast-1";
+  const servicename = "s3";
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+
+  // Canonical Requestの作成（改行区切り）
+  let canonicalRequest = [
+    r_method,
+    canonicalUri,
+    canonicalQueryString,
+    "host:" + s3_host,
+    "x-amz-content-sha256:" + r_xamz_content_hash,
+    "x-amz-date:" + r_xamz_date,
+    "",  // ヘッダー終了の空行
+    signedHeaders,
+    r_xamz_content_hash
+  ].join('\n');
+
+  let cr_hash = crypto.createHash('sha256').update(canonicalRequest).digest('hex');
+  r.log("Canonical Request Hash: " + cr_hash);
+
+  // CredentialScope の作成
+  let credentialScope = timestamp + '/' + region + '/' + servicename + '/aws4_request';
+
+  // String to Sign の作成
+  let stringToSign = [
+    'AWS4-HMAC-SHA256',
+    r_xamz_date,
+    credentialScope,
+    cr_hash
+  ].join('\n');
+
+  // 署名鍵の生成
+  let signingKey = getSignatureKey(secretkey, timestamp, region, servicename);
+  // 署名の計算
+  let signature = calculateSignature(stringToSign, signingKey);
+  r.log("Signature: " + signature);
+
+  let authorizationHeader =
+    'AWS4-HMAC-SHA256 ' +
+    'Credential=' + accesskey + '/' + credentialScope + ',' +
+    'SignedHeaders=' + signedHeaders + ',' +
+    'Signature=' + signature;
+
+  r.log("Authorization Header: " + authorizationHeader);
+  return authorizationHeader;
+}
+
+function sortedQSStringify(obj) {
+  return qs.stringify(
+    Object.keys(obj).sort().reduce((result, key) => {
+      result[key] = obj[key];
+      return result;
+    }, {})
+  );
+}
+
+function getSignatureKey(key, timestamp, regionName, serviceName) {
+  let kDate = crypto.createHmac('sha256', 'AWS4' + key).update(timestamp).digest();
+  let kRegion = crypto.createHmac('sha256', kDate).update(regionName).digest();
+  let kService = crypto.createHmac('sha256', kRegion).update(serviceName).digest();
+  let kSigning = crypto.createHmac('sha256', kService).update('aws4_request').digest();
+  return kSigning;
+}
+
+function calculateSignature(stringToSign, signingKey) {
+  return crypto.createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+}
+
+export default recalculateAuthorization;
+
+
+修正点の解説
+未定義の変数の修正
+
+元コード中の datestamp は定義されていなかったため、AWS署名計算で使用する日付（YYYYMMDD）として、r_xamz_date.substring(0, 8) を timestamp として使用するように変更しました。
+crypto.createHmac の呼び出し修正
+
+各 createHmac 呼び出しで、アルゴリズム名 'sha256' を正しいクォーテーション付きで指定し、update() と digest() を正しくチェーンするように修正しました。
+例：
+let kDate = crypto.createHmac('sha256', 'AWS4' + key).update(timestamp).digest();
+
+calculateSignature の構文修正
+
+crypto.createHmac('sha256, signingKey) のようなクォーテーションやシンタックスエラーを修正し、正しく 'sha256' として署名を計算するように変更しました。
+例：
+return crypto.createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+
+その他細部の調整
+
+canonicalRequest の作成部分で、ヘッダー終了の空行を明示的に追加しました。
+qs.stringify の利用方法は、引数がオブジェクトか文字列かを想定して、必要に応じた変換を行うようにしています。
+この修正済みコードは、nginxでTLSを終端するHTTPリバースプロキシとして、S3用のAuthorizationヘッダーを再計算する処理として利用可能な例となります。
+実際の運用前に、十分なテストとAWS署名仕様との整合性確認をお願いいたします。
