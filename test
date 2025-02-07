@@ -13,3 +13,18 @@ nginx.conf に load_module 記述を追加：
 load_module modules/ngx_http_js_module.so;
 
 ※パッケージ名やモジュールの配置パスはOSのバージョンやリポジトリにより異なるため、インストール後にパス等を確認してください。
+
+
+この設定のポイント
+TLS終端・HTTPリバースプロキシ動作
+
+listen 443 ssl; でnginxがSSL/TLS接続を受け付け、証明書で終端しています。
+その上で、proxy_pass https://… によってバックエンドと新たにTLS接続を確立しているため、エンドツーエンドのTLSが維持されるわけではなく、nginxで一度中断・再構築されます。
+Authorization ヘッダーの再計算
+
+js_set $reAuthorization main.recalculateAuthorization; によって、リクエスト内容（特にホスト等の変更）に合わせたAuthorizationヘッダーを再計算し、バックエンド側へ渡しています。
+これは、nginxでTLS終端・HTTPプロキシ処理を行う場合に、オリジナルのSigV4署名と不整合が生じないようにするための対策ですが、正確な再計算ができないと署名不一致のリスクがあります。
+「deny all;」の記述
+
+サーバーブロック内にdeny all;があると、通常は全リクエストを拒否してしまいます。これは意図的な制限でなければ削除または調整が必要です。
+
