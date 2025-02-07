@@ -36,15 +36,13 @@ export class InspectorExportStack extends cdk.Stack {
       }
     }));
 
-    // 2. S3 バケットの作成
+    // 2. Inspector レポートエクスポート用のS3バケットを作成（SSE‑S3を利用）
     const inspectorExportBucket = new s3.Bucket(this, 'InspectorExportBucket', {
-      // ポリシーに合わせた固定バケット名を指定
-      bucketName: 'amzn-s3-demo-bucket',
-      encryption: s3.BucketEncryption.KMS,
-      encryptionKey: inspectorExportKey,
+      bucketName: 'amzn-s3-demo-bucket', // 固定名（必要に応じて変更）
+      encryption: s3.BucketEncryption.S3_MANAGED, // SSE‑S3（S3管理型キー）で暗号化
       versioned: true,
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // ※開発用。実運用時は注意
-      autoDeleteObjects: true,                // ※開発用。実運用時は注意
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // スタック削除時にバケットも削除（開発・検証用）
+      autoDeleteObjects: true,             // バケット削除前にオブジェクトを自動削除
     });
 
     // S3 バケットポリシーを追加
