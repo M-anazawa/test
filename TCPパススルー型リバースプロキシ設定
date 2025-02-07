@@ -55,3 +55,59 @@ proxy_connect_timeout や proxy_timeout は必要に応じて調整してくだ�
 実際の環境に合わせてホスト名やタイムアウト値などを調整の上、十分な動作検証を行ってください。
 
 
+
+
+以下は、RHEL8/9上でnginxのstreamモジュールを有効にするための一般的な手順です。
+
+1. 既存のnginxパッケージにstreamモジュールが含まれているか確認する
+多くの場合、RHEL8/9向けの公式またはEPEL/AppStream由来のnginxパッケージは、streamモジュールを動的モジュールとして含んでいます。
+
+ターミナルで以下のコマンドを実行し、コンパイルオプションに「with-stream」があるか確認します。
+nginx -V 2>&1 | grep -o with-stream
+
+結果に with-stream と表示されれば、nginxはstreamモジュールをサポートしています。
+
+2. 動的モジュールとして提供されている場合、通常はモジュールファイルが /usr/lib64/nginx/modules/（またはディストリビューションによって異なるディレクトリ）に配置されています。
+たとえば、次のようなモジュールファイルが存在するか確認します。
+ls /usr/lib64/nginx/modules/ngx_stream_module.so
+
+3. もしファイルが存在する場合、nginxのメイン設定ファイル（通常 /etc/nginx/nginx.conf）の一番先頭に以下の記述を追加して、モジュールをロードします。
+load_module modules/ngx_stream_module.so;
+
+※もし実際のパスが異なる場合は、パッケージのドキュメントや nginx -V の出力を参考にしてください。
+
+
+2. nginxパッケージにstreamモジュールが含まれていない場合（または最新版を自前で利用したい場合）のソースからのコンパイル方法
+必要な依存パッケージをインストール
+sudo dnf install gcc openssl-devel pcre-devel zlib-devel make
+
+nginxのソースコードをダウンロード
+例として最新版のnginxをダウンロードします（バージョン番号は適宜最新のものに置き換えてください）。
+wget http://nginx.org/download/nginx-1.xx.xx.tar.gz
+tar zxvf nginx-1.xx.xx.tar.gz
+cd nginx-1.xx.xx
+
+configureオプションに --with-stream を指定してコンパイル
+例えば、動的モジュールとしてコンパイル可能な互換モード（--with-compat）を指定する場合：
+./configure --with-stream --with-compat
+make
+sudo make install
+
+インストール後の設定
+インストールされたモジュールが所定のディレクトリ（例：/usr/local/nginx/modules/ や /etc/nginx/modules/ など）にあることを確認し、nginx.conf の先頭に以下のように記述してロードします。
+load_module modules/ngx_stream_module.so;
+
+3. 設定の確認
+nginxの再起動・設定テスト
+
+設定ファイルの文法チェックを実施します。
+sudo nginx -t
+
+問題がなければ、nginxを再起動またはリロードしてください。
+sudo systemctl restart nginx
+
+動作確認
+先ほど作成したstreamモジュールを利用する設定（TCPパススルー型リバースプロキシ設定）を有効にし、実際に接続が透過的に転送されるか検証してください。
+
+以上の手順で、RHEL8/9上でnginxのstreamモジュールを有効にし、TCPパススルー型リバースプロキシとして利用できるようになります。
+環境やパッケージのバージョンによってはディレクトリ構成やパッケージ名が異なる場合があるので、各環境に合わせた確認・調整を行ってください。
