@@ -1,3 +1,5 @@
+nginx-module-njs（ngx_http_js_module）は、NGINXにJavaScript（njs）機能を追加するための公式モジュールです
+
 CentOS/RHEL 系の場合
 
 CentOSやRHELの場合は、EPELリポジトリや公式NGINXリポジトリからパッケージが提供されている場合があります。
