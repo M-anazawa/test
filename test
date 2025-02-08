@@ -1,20 +1,3 @@
-CentOS/RHEL 系の場合
-
-CentOSやRHELの場合は、EPELリポジトリや公式NGINXリポジトリからパッケージが提供されている場合があります。
-例えば、CentOS 8の場合：
-
-EPELリポジトリの有効化（必要な場合）：
-sudo dnf install epel-release
-
-nginx-mod-njs のインストール：
-sudo dnf install nginx-mod-njs
-
-nginx.conf に load_module 記述を追加：
-load_module modules/ngx_http_js_module.so;
-
-※パッケージ名やモジュールの配置パスはOSのバージョンやリポジトリにより異なるため、インストール後にパス等を確認してください。
-
-
 この設定のポイント
 TLS終端・HTTPリバースプロキシ動作
 listen 443 ssl; でnginxがSSL/TLS接続を受け付け、証明書で終端しています。
