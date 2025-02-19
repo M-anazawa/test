@@ -111,3 +111,22 @@ sudo systemctl restart nginx
 
 以上の手順で、RHEL8/9上でnginxのstreamモジュールを有効にし、TCPパススルー型リバースプロキシとして利用できるようになります。
 環境やパッケージのバージョンによってはディレクトリ構成やパッケージ名が異なる場合があるので、各環境に合わせた確認・調整を行ってください。
+
+
+
+stream モジュールでは rewrite のログは出せませんが、アクセスログ (access_log) を詳細に記録 することで
+クライアントの接続状況を監視できます。
+
+stream {
+    log_format stream_log '$remote_addr [$time_local] '
+                          '$protocol $status $bytes_sent $bytes_received '
+                          '$session_time';
+
+    access_log /var/log/nginx/stream_access.log stream_log;
+
+    server {
+        listen 443;
+        proxy_pass backend;
+    }
+}
+
