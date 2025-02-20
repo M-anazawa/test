@@ -231,6 +231,21 @@ listen 443 proxy_protocol;
 
 
 
+アカウントAに Route 53 プライベートホストゾーン を設定
+アカウントAのVPC内で s3.ap-northeast-1.amazonaws.com をNLBのエンドポイントに解決するようにする 方法もあります。
+
+設定手順
+アカウントAで Route 53 のプライベートホストゾーンを作成
+aws route53 create-hosted-zone --name s3.ap-northeast-1.amazonaws.com --vpc VPCId=vpce-xxxxxxxx,VPCRegion=ap-northeast-1
+
+Aレコード を追加
+エンドポイントをNLBに向ける
+例:
+s3.ap-northeast-1.amazonaws.com. IN A <NLBのIPアドレス>
+
+アカウントAのEC2から nslookup で確認
+nslookup s3.ap-northeast-1.amazonaws.com
+→ NLBのエンドポイントが返ってくれば成功。
 
 
 
