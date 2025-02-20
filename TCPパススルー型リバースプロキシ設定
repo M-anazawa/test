@@ -177,4 +177,21 @@ stream {
     ]
 }
 
+下記を追加
+        proxy_ssl on;
+        proxy_ssl_server_name on;
+
+
+クライアント (EC2) の CA 証明書を最新化
+sudo yum update -y ca-certificates
+
+OpenSSL で証明書の検証を行う
+openssl s_client -connect vpce-xxxxxxxx.vpce.amazonaws.com:443 -servername vpce-xxxxxxxx.vpce.amazonaws.com
+
+成功する場合
+Verify return code: 0 (ok)
+
+
+
+
 
