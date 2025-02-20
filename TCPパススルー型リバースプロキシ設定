@@ -226,7 +226,7 @@ AWS CLI がどの証明書を使用しようとしているか
 
 
 
-
+listen 443 proxy_protocol;
 
 
 
