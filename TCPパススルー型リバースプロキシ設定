@@ -193,5 +193,55 @@ Verify return code: 0 (ok)
 
 
 
+VPCエンドポイントの証明書が取得できるかを確認 してください。
+openssl s_client -connect vpce-0259961995361dkf9-krpw7yeq.vpce-svs-0ff9e45d911e19g5b.ap-northeast-1.vpce.amazonaws.com:443 -servername bucket.vpce-06b0e68eZdf35d271-1u6ilnxm.s3.ap-northeast-1.vpce.amazonaws.com -showcerts
+
+確認すべきポイント
+Certificate chain に証明書が表示されるか？ (-----BEGIN CERTIFICATE----- があるか？)
+Verify return code: 0 (ok) になっているか？
+
+エラーが出る場合
+VPCエンドポイントの設定を確認（特に、TLS証明書の有無）
+AWSのエンドポイント設定が正しいか確認
+aws ec2 describe-vpc-endpoints --vpc-endpoint-ids vpce-xxxxxxxxxxxxxxxx
+DnsEntries が正しく設定されているか？
+
+② TLS 1.2 以上を明示的に指定
+AWS CLI はデフォルトで TLS 1.2 以上 を使用するため、openssl でもTLS 1.2を強制的に使用して試してみてください。
+openssl s_client -connect vpce-0259961995361dkf9-krpw7yeq.vpce-svs-0ff9e45d911e19g5b.ap-northeast-1.vpce.amazonaws.com:443 -servername bucket.vpce-06b0e68eZdf35d271-1u6ilnxm.s3.ap-northeast-1.vpce.amazonaws.com -tls1_2
+
+③ CA証明書を正しくインストール
+RHEL 8 または 9 で 証明書の更新が適切に完了していない 可能性があります。
+sudo yum install -y ca-certificates
+sudo update-ca-trust force-enable
+sudo update-ca-trust extract
+
+④ AWS CLIでデバッグログを有効化
+AWS CLIのデバッグログを有効にして、詳細な情報を確認してください。
+AWS_DEFAULT_REGION=ap-northeast-1 AWS_CA_BUNDLE=/etc/ssl/certs/ca-bundle.crt aws s3 ls s3://migration-rev-proxy-s3-dst-bkt --endpoint-url https://vpce-0259961995361dkf9-krpw7yeq.vpce-svs-0ff9e45d911e19g5b.ap-northeast-1.vpce.amazonaws.com --debug
+
+確認ポイント
+SSL connection error の詳細情報
+AWS CLI がどの証明書を使用しようとしているか
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
