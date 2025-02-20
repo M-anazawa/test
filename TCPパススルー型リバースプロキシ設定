@@ -130,3 +130,51 @@ stream {
     }
 }
 
+
+アカウントBのS3バケットへアクセスできるようにするためのIAMポリシー
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListBucket",
+                "s3:GetObject",
+                "s3:PutObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::migration-rev-proxy-s3-dst-bkt",
+                "arn:aws:s3:::migration-rev-proxy-s3-dst-bkt/*"
+            ]
+        }
+    ]
+}
+
+アカウントBのS3バケットポリシー
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::<アカウントAのID>:role/EC2-S3-Access"
+            },
+            "Action": [
+                "s3:ListBucket",
+                "s3:GetObject",
+                "s3:PutObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::migration-rev-proxy-s3-dst-bkt",
+                "arn:aws:s3:::migration-rev-proxy-s3-dst-bkt/*"
+            ],
+            "Condition": {
+                "StringEquals": {
+                    "aws:SourceVpce": "vpce-xxxxxxxxxxxxxxxxx"
+                }
+            }
+        }
+    ]
+}
+
+
