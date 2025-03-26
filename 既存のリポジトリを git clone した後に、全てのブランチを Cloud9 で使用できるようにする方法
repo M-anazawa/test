@@ -1,0 +1,55 @@
+デフォルトでは、git clone を実行すると リモートリポジトリのデフォルトブランチ（通常 main または master）のみがチェックアウトされ、他のブランチはローカルには存在しません。
+すべてのブランチを Cloud9 で使用できるようにするためには、以下の手順を実行します。
+
+1. git clone でリポジトリを取得
+まず、Cloud9 でリポジトリをクローンします。
+
+git clone https://git-codecommit.ap-northeast-1.amazonaws.com/v1/repos/my-repo
+
+これにより、デフォルトブランチのみがローカルにチェックアウトされます。
+
+2. すべてのリモートブランチを取得
+git clone の後、以下のコマンドでリモートリポジトリの全ブランチ情報を取得します。
+
+git fetch --all
+
+これにより、リモートに存在するすべてのブランチの情報がローカルに同期されます。
+
+3. すべてのブランチをローカルに作成
+リモートに存在するすべてのブランチをローカルに作成するには、以下のコマンドを実行します。
+
+for branch in $(git branch -r | grep -v '\->' | sed 's/origin\///'); do
+  git branch --track $branch origin/$branch
+done
+
+このスクリプトは：
+git branch -r でリモートのブランチ一覧を取得
+grep -v '\->' で HEAD 参照などを除外
+sed 's/origin\///' で origin/ を削除
+git branch --track で各ブランチをローカルに作成
+
+4. すべてのブランチをローカルにチェックアウト
+ローカルに作成したブランチを Cloud9 で自由に切り替えられるようにします。
+
+git branch -a
+
+このコマンドで、すべてのブランチが正しく取得できていることを確認。
+
+個別のブランチを切り替えたい場合：
+
+git checkout <ブランチ名>
+
+すべてのブランチをローカルにチェックアウトしたい場合：
+
+for branch in $(git branch -r | grep -v '\->' | sed 's/origin\///'); do
+  git checkout $branch
+done
+
+
+
+
+
+
+
+
+
