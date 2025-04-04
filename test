@@ -1,5 +1,4 @@
-/lib/lambda/delete_snapshots/
-  └── delete_snapshots.py
+sudo ls -la ~/Library/Application\ Support/AWS\ VPN\ Client/TempConfigs
 
-code: Code.fromAsset(path.join(__dirname, "lambda/delete_snapshots")),
-handler: "delete_snapshots.lambda_handler",
+sudo cp ~/Library/Application\ Support/AWS\ VPN\ Client/TempConfigs/your_config_file.ovpn ~/Desktop/
+sudo chown $(whoami) ~/Desktop/your_config_file.ovpn
