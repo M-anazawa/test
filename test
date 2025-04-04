@@ -1,8 +1,5 @@
+/lib/lambda/delete_snapshots/
+  └── delete_snapshots.py
 
-個人的な見解
-
-これ以上のAuthorizationヘッダー（SigV4署名）を再計算する方法でのHTTPリバースプロキシ実装は、次の理由により対応が難しいと考えます
-・セキュリティリスクが高く、実装するには十分な検証・試験を行う必要がある
-・実装に要する時間が予測出来ない
-・インフラエンジニアの業務範囲を超えている
-・本来のインフラエンジニアとして行うべき業務が滞る
+code: Code.fromAsset(path.join(__dirname, "lambda/delete_snapshots")),
+handler: "delete_snapshots.lambda_handler",
