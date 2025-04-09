@@ -1,4 +1,7 @@
-sudo ls -la ~/Library/Application\ Support/AWS\ VPN\ Client/TempConfigs
+aws secretsmanager get-secret-value --secret-id <シークレット名> --query SecretString --output text | jq -r .password
 
-sudo cp ~/Library/Application\ Support/AWS\ VPN\ Client/TempConfigs/your_config_file.ovpn ~/Desktop/
-sudo chown $(whoami) ~/Desktop/your_config_file.ovpn
+各項目の説明
+--secret-id: 取得したいシークレットの名前（またはARN）
+--query SecretString: シークレットのJSON文字列部分のみを抽出
+--output text: JSONの文字列として出力
+jq -r .password: JSONの中の password キーの値を取り出す
