@@ -5,3 +5,12 @@ aws secretsmanager get-secret-value --secret-id <シークレット名> --query 
 --query SecretString: シークレットのJSON文字列部分のみを抽出
 --output text: JSONの文字列として出力
 jq -r .password: JSONの中の password キーの値を取り出す
+
+
+全シークレット名を取得するコマンド
+aws secretsmanager list-secrets --query 'SecretList[].Name' --output text
+
+全シークレット名を取得するコマンド(1行ずつ表示したい場合)
+aws secretsmanager list-secrets --query 'SecretList[].Name' --output text | tr '\t' '\n'
+または
+aws secretsmanager list-secrets --query 'SecretList[].Name' --output table
