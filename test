@@ -26,6 +26,63 @@ IAMユーザーがMFAを設定・有効化するまではAWS CLI操作を一切�
 }
 
 
+AWS CLIの実行権限のみを持つIAMユーザーでも、MFA（仮想MFAデバイス）の設定は可能
+IAMユーザー自身に以下の権限が必要
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateVirtualMFADevice",
+        "iam:EnableMFADevice",
+        "iam:ListMFADevices",
+        "iam:ListVirtualMFADevices",
+        "iam:ResyncMFADevice",
+        "iam:DeleteVirtualMFADevice"
+      ],
+      "Resource": "arn:aws:iam::*:user/${aws:username}"
+    }
+  ]
+}
+
+手順（すべてCLIで実行）
+1. 仮想MFAデバイスの作成
+
+aws iam create-virtual-mfa-device \
+  --virtual-mfa-device-name mymfa \
+  --outfile /tmp/mfa-qr.png \
+  --bootstrap-method QRCodePNG
+
+このとき、--outfile でQRコード画像が保存されます。スマホのMFAアプリ（Google AuthenticatorやAuthyなど）で読み取って登録します。
+
+2. MFAデバイスを有効化
+スマホで6桁コードを2つ連続で取得し、以下を実行：
+
+aws iam enable-mfa-device \
+  --user-name <自分のIAMユーザー名> \
+  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名> \
+  --authentication-code1 123456 \
+  --authentication-code2 789012
+
+3. 有効化後の利用（例：一時クレデンシャル取得）
+
+aws sts get-session-token \
+  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名> \
+  --token-code 123456
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
