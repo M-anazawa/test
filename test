@@ -1,92 +1,21 @@
-IAMユーザーがMFAを設定・有効化するまではAWS CLI操作を一切できないようにする
-この制御はIAMポリシーにMFA条件（aws:MultiFactorAuthPresent）を組み込むことで実現します。
+IAMユーザーからMFAデバイスの割り当てを解除し、その後、MFAデバイス自体を削除する方法
 
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "DenyAllUnlessMFA",
-      "Effect": "Deny",
-      "NotAction": [
-        "iam:CreateVirtualMFADevice",
-        "iam:EnableMFADevice",
-        "iam:ListMFADevices",
-        "iam:ResyncMFADevice",
-        "iam:DeleteVirtualMFADevice",
-        "iam:GetUser"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "BoolIfExists": {
-          "aws:MultiFactorAuthPresent": "false"
-        }
-      }
-    }
-  ]
-}
+ステップ1：MFAデバイスの割り当て解除（deactivate-mfa-device）
+まず、IAMユーザーからMFAデバイスを外します：
 
-
-AWS CLIの実行権限のみを持つIAMユーザーでも、MFA（仮想MFAデバイス）の設定は可能
-IAMユーザー自身に以下の権限が必要
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "iam:CreateVirtualMFADevice",
-        "iam:EnableMFADevice",
-        "iam:ListMFADevices",
-        "iam:ListVirtualMFADevices",
-        "iam:ResyncMFADevice",
-        "iam:DeleteVirtualMFADevice"
-      ],
-      "Resource": "arn:aws:iam::*:user/${aws:username}"
-    }
-  ]
-}
-
-手順（すべてCLIで実行）
-1. 仮想MFAデバイスの作成
-
-aws iam create-virtual-mfa-device \
-  --virtual-mfa-device-name mymfa \
-  --outfile /tmp/mfa-qr.png \
-  --bootstrap-method QRCodePNG
-
-このとき、--outfile でQRコード画像が保存されます。スマホのMFAアプリ（Google AuthenticatorやAuthyなど）で読み取って登録します。
-
-2. MFAデバイスを有効化
-スマホで6桁コードを2つ連続で取得し、以下を実行：
-
-aws iam enable-mfa-device \
+aws iam deactivate-mfa-device \
   --user-name <自分のIAMユーザー名> \
-  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名> \
-  --authentication-code1 123456 \
-  --authentication-code2 789012
+  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名>
 
-3. 有効化後の利用（例：一時クレデンシャル取得）
+※ --serial-number には、MFAデバイスのARN（作成時に指定したもの）を入力します。
 
-aws sts get-session-token \
-  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名> \
-  --token-code 123456
+ステップ2：仮想MFAデバイスの削除（delete-virtual-mfa-device）
+次に、MFAデバイス自体を完全に削除します：
 
+aws iam delete-virtual-mfa-device \
+  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+これで仮想MFAデバイスはIAMから完全に削除されます。
 
 
 
