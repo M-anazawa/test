@@ -1,16 +1,39 @@
-aws secretsmanager get-secret-value --secret-id <シークレット名> --query SecretString --output text | jq -r .password
+IAMユーザーがMFAを設定・有効化するまではAWS CLI操作を一切できないようにする
+この制御はIAMポリシーにMFA条件（aws:MultiFactorAuthPresent）を組み込むことで実現します。
 
-各項目の説明
---secret-id: 取得したいシークレットの名前（またはARN）
---query SecretString: シークレットのJSON文字列部分のみを抽出
---output text: JSONの文字列として出力
-jq -r .password: JSONの中の password キーの値を取り出す
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyAllUnlessMFA",
+      "Effect": "Deny",
+      "NotAction": [
+        "iam:CreateVirtualMFADevice",
+        "iam:EnableMFADevice",
+        "iam:ListMFADevices",
+        "iam:ResyncMFADevice",
+        "iam:DeleteVirtualMFADevice",
+        "iam:GetUser"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:MultiFactorAuthPresent": "false"
+        }
+      }
+    }
+  ]
+}
 
 
-全シークレット名を取得するコマンド
-aws secretsmanager list-secrets --query 'SecretList[].Name' --output text
 
-全シークレット名を取得するコマンド(1行ずつ表示したい場合)
-aws secretsmanager list-secrets --query 'SecretList[].Name' --output text | tr '\t' '\n'
-または
-aws secretsmanager list-secrets --query 'SecretList[].Name' --output table
+
+
+
+
+
+
+
+
+
+
