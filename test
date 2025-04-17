@@ -1,25 +1,26 @@
-IAMユーザーからMFAデバイスの割り当てを解除し、その後、MFAデバイス自体を削除する方法
+原因
+psych gem のビルド時に yaml.h が見つからずエラーになっています。
+これは、libyaml の開発用ヘッダファイル（libyaml-dev）がインストールされていないためです。
+以前の ruby:3.2.2-slim ベースの環境では、この依存パッケージが明示的に含まれていたか、または psych のバージョンが異なっていて yaml.h を必要としなかった可能性があります。
 
-ステップ1：MFAデバイスの割り当て解除（deactivate-mfa-device）
-まず、IAMユーザーからMFAデバイスを外します：
+改善方法
+Dockerfile に libyaml-dev を追加してください。該当の RUN apt install 行を以下のように修正します：
 
-aws iam deactivate-mfa-device \
-  --user-name <自分のIAMユーザー名> \
-  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名>
-
-※ --serial-number には、MFAデバイスのARN（作成時に指定したもの）を入力します。
-
-ステップ2：仮想MFAデバイスの削除（delete-virtual-mfa-device）
-次に、MFAデバイス自体を完全に削除します：
-
-aws iam delete-virtual-mfa-device \
-  --serial-number arn:aws:iam::<アカウントID>:mfa/<自分のIAMユーザー名>
-
-これで仮想MFAデバイスはIAMから完全に削除されます。
+RUN apt-get update \
+    && apt-get -y upgrade \
+    && apt install -y --no-install-recommends \
+        tzdata build-essential libpq-dev postgresql-client-14 \
+        curl cron sudo libyaml-dev \  # ← これを追加
+    && apt clean \
+    && rm -rf /var/lib/apt/lists/*
 
 
+補足：なぜ libyaml-dev が必要なのか
+psych は YAML の処理を担う Ruby の標準ライブラリの一部ですが、ネイティブ拡張として libyaml を必要とします。
+Ruby のバージョンアップや psych gem のバージョン変更により、ビルドに必要なライブラリが明示的に必要になることがあります。
 
+対応後の確認
+修正後に再度 CodeBuild を実行して、bundle install が成功することを確認してください。
 
-
-
+その後、docker push エラー（今回の2次的エラー）は build が失敗したことにより image が生成されなかったために起きています。build が成功すれば解消されます。
 
