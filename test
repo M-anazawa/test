@@ -9,3 +9,5 @@
 }
 
 
+カスタムリソースとは？	
+CloudFormation/CDKで対応していない任意処理をLambda経由で実行する仕組み
