@@ -1,3 +1,48 @@
+◾️Pipeline
+
+1. 実行中の AWS CodePipeline をキャンセルするコマンド
+
+aws codepipeline stop-pipeline-execution \
+  --pipeline-name <パイプライン名> \
+  --pipeline-execution-id <実行ID> \
+  --abandon
+
+<パイプライン名>: 実行中のパイプライン名を指定します。
+<実行ID>: 実行中のパイプラインの pipelineExecutionId を指定します（次項で取得可能）。
+--abandon: これを指定すると、途中までの変更はロールバックされずに終了します（ロールバックしたい場合は省略）。
+
+実行中のパイプラインIDを確認するには:
+
+aws codepipeline list-pipeline-executions \
+  --pipeline-name <パイプライン名> \
+  --query 'pipelineExecutionSummaries[?status==`InProgress`].pipelineExecutionId' \
+  --output text
+
+2. CodePipeline の各ステージの状態を確認するコマンド
+
+aws codepipeline get-pipeline-execution \
+  --pipeline-name <パイプライン名> \
+  --pipeline-execution-id <実行ID>
+
+このコマンドの出力には stageStates というフィールドが含まれており、各ステージの状態 (status) を確認できます。
+
+# ステージの状態だけを抜粋したい場合
+aws codepipeline get-pipeline-execution \
+  --pipeline-name <パイプライン名> \
+  --pipeline-execution-id <実行ID> \
+  --query 'pipelineExecution.stageStates[*].[stageName, latestExecution.status]' \
+  --output table
+
+
+
+
+
+
+
+
+
+◾️lambda-nodejs
+
 既存の cdk.json にある "@aws-cdk/aws-lambda-nodejs:useLatestRuntimeVersion": true は、NodejsFunction（@aws-cdk/aws-lambda-nodejs）を使用した関数に Node.js の最新ランタイム（現時点では Node.js 20）を自動適用するための設定です。
 ただし、これは NodejsFunction に限定された設定であり、今回のように CustomResourceProvider を使って暗黙的に作成される Lambda 関数には適用されません。
 
