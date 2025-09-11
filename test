@@ -1,1 +1,20 @@
+# 一覧（200 期待）
+curl -i http://localhost:4010/v1/datasets
 
+# 詳細（例: dataset_id=1001 の例がスキーマに載っている）
+curl -i http://localhost:4010/v1/datasets/1001
+
+# テーブル一覧（dataset_id はパスに埋める）
+curl -i http://localhost:4010/v1/datasets/1001/tables
+
+# ジョブ作成（Adhoc）
+curl -i -X POST http://localhost:4010/v1/jobs/ad_hoc \
+  -H "Content-Type: application/json" \
+  -d '{"dataset_id":"123","query_text":"select 1"}'
+
+# 404 の確認（未定義パス）
+curl -i http://localhost:4010/not-exist
+
+# 一覧取得（ApiKeyAuth が必要な想定ルート）
+curl -i http://localhost:4010/provider/v1/dataset_etl_configurations \
+  -H "Authorization: TD1 dummy-api-key"
