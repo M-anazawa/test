@@ -1,6 +1,1 @@
 
-openssl req -x509 -nodes -days 365 \
-  -newkey rsa:2048 \
-  -keyout poc-alb.key \
-  -out poc-alb.crt \
-  -subj "/C=JP/ST=Tokyo/L=Tokyo/O=PoC/OU=Dev/CN=poc.example.internal"
