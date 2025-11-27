@@ -16,7 +16,6 @@
 
 
 
-
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -33,13 +32,18 @@
       "Sid": "AossDataPlaneAccessAllCollectionsInAccount",
       "Effect": "Allow",
       "Action": [
-        "aoss:APIAccessAll",
-        "aoss:DescribeCollection",
+        "aoss:APIAccessAll"
+      ],
+      "Resource": "arn:aws:aoss:ap-northeast-1:123456789012:collection/*"
+    },
+    {
+      "Sid": "AossListAndGetCollectionsMeta",
+      "Effect": "Allow",
+      "Action": [
+        "aoss:ListCollections",
         "aoss:BatchGetCollection"
       ],
-      "Resource": [
-        "arn:aws:aoss:ap-northeast-1:123456789012:collection/*"
-      ]
+      "Resource": "*"
     },
     {
       "Sid": "BedrockInvokeAnyFoundationModel",
